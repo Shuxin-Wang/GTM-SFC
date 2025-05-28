@@ -56,7 +56,7 @@ if __name__ == '__main__':
     state_input_dim = node_state_dim * env.num_nodes + config.MAX_SFC_LENGTH * vnf_state_dim
     state_output_dim = (env.num_nodes + config.MAX_SFC_LENGTH) * vnf_state_dim
 
-    agent = DDPG(node_state_dim, vnf_state_dim, state_input_dim, state_output_dim,
+    agent = DDPG(node_state_dim, vnf_state_dim, state_output_dim,
                       config.MAX_SFC_LENGTH, device)
 
     # train

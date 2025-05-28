@@ -29,7 +29,7 @@ class ReplayBuffer:
         return len(self.buffer)
 
 # todo: mask delivery
-class Actor(nn.Module):
+class StateNetworkActor(nn.Module):
     def __init__(self, net_state_dim, vnf_state_dim, state_dim, action_dim, hidden_dim=512):
         super().__init__()
         self.state_network = StateNetwork(net_state_dim, vnf_state_dim)
@@ -64,7 +64,7 @@ class Actor(nn.Module):
 
         return placement
 
-class Critic(nn.Module):
+class StateNetworkCritic(nn.Module):
     def __init__(self, net_state_dim, vnf_state_dim, state_dim, action_dim, hidden_dim=512):
         super().__init__()
         self.state_network = StateNetwork(net_state_dim, vnf_state_dim)
@@ -81,15 +81,128 @@ class Critic(nn.Module):
         q = self.l3(F.relu(x))
         return q
 
+# todo: fit the environment
+class Seq2SeqActor(nn.Module):
+    def __init__(self, vnf_state_dim, hidden_dim, num_layers, num_nodes):
+        super().__init__()
+        self.embedding = nn.Linear(vnf_state_dim, hidden_dim)   # input: batch_size * max_sfc_length * vnf_state_dim
+        self.encoder = nn.LSTM(
+            input_size=hidden_dim,
+            hidden_size=hidden_dim,
+            num_layers=num_layers,
+            batch_first=True
+        )
+        self.decoder = nn.LSTM(
+            input_size=hidden_dim,
+            hidden_size=hidden_dim,
+            num_layers=num_layers,
+            batch_first=True
+        )
+        self.fc_out = nn.Linear(hidden_dim, num_nodes)  # output: batch_size * max_sfc_length * num_nodes
+
+    def forward(self, sfc_state):
+        embedded = self.embedding(sfc_state)  # input: batch_size * max_sfc_length * vnf_state_dim
+        encoder_outputs, (h, c) = self.encoder(embedded)    # output, hidden state, cell state
+        decoder_outputs, _ = self.decoder(encoder_outputs, (h, c))
+        logits = self.fc_out(decoder_outputs)
+        probs = F.softmax(logits, dim=-1)
+        return logits, probs
+
+    def get_sfc_placement(self, probs):
+        sampled = torch.argmax(probs, dim=-1)  # batch_size * max_sfc_length
+        return sampled
+
+class ValueBaseline(nn.Module):
+    def __init__(self, vnf_state_dim, hidden_dim):
+        super().__init__()
+        self.embedding = nn.Linear(vnf_state_dim, hidden_dim)
+        self.encoder = nn.LSTM(
+            input_size=hidden_dim,
+            hidden_size=hidden_dim,
+            num_layers=1,
+            batch_first=True
+        )
+        self.fc_out = nn.Linear(hidden_dim, 1)
+
+    def forward(self, vnf_seq):
+        embedded = self.embedding(vnf_seq)
+        _, (h, _) = self.encoder(embedded)
+        value = self.fc_out(h[-1])
+        return value.squeeze(-1)
+
+class NCO(nn.Module):
+    def __init__(self, vnf_state_dim, num_nodes, device):
+        super().__init__()
+        self.device = device
+        self.actor = Seq2SeqActor(vnf_state_dim, hidden_dim=128, num_layers=2, num_nodes=num_nodes)
+        self.critic = ValueBaseline(vnf_state_dim, hidden_dim=128)
+        self.actor_optimizer = optim.Adam(self.actor.parameters(), lr=1e-4)
+        self.critic_optimizer = optim.Adam(self.critic.parameters(), lr=1e-3)
+
+    def select_action(self, state, exploration=True):
+        # state: tuple (net_state, sfc_state)
+        _, sfc_state = state
+        sfc_state = sfc_state.unsqueeze(0) if sfc_state.dim() == 2 else sfc_state  # [1, T, D]
+        _, probs = self.actor(sfc_state.to(self.device))
+        if exploration:
+            dist = torch.distributions.Categorical(probs)
+            action = dist.sample()
+        else:
+            action = torch.argmax(probs, dim=-1)
+        return action
+
+    def estimate_value(self, sfc_state):
+        sfc_state = sfc_state.unsqueeze(0) if sfc_state.dim() == 2 else sfc_state
+        return self.critic(sfc_state.to(self.device))
+
+    def train_step(self, env, sfc_list, sfc_states):
+        self.train()
+        total_actor_loss = 0
+        total_critic_loss = 0
+
+        for i, sfc in enumerate(sfc_list):
+            env.clear_sfc()
+            sfc_state = sfc_states[i].unsqueeze(0).to(self.device)  # [1, T, D]
+            logits, probs = self.actor(sfc_state)
+            dist = torch.distributions.Categorical(probs)
+            action = dist.sample()  # [1, T]
+            log_prob = dist.log_prob(action).mean()
+
+            placement = action[0][:len(sfc)]
+            _, reward = env.step(sfc, placement)
+
+            with torch.no_grad():
+                baseline = self.critic(sfc_state).detach()
+            advantage = reward - baseline
+
+            actor_loss = -advantage * log_prob
+            critic_pred = self.critic(sfc_state)
+            critic_loss = F.mse_loss(critic_pred, reward.unsqueeze(0))
+
+            self.actor_optimizer.zero_grad()
+            actor_loss.backward()
+            self.actor_optimizer.step()
+
+            self.critic_optimizer.zero_grad()
+            critic_loss.backward()
+            self.critic_optimizer.step()
+
+            total_actor_loss += actor_loss.item()
+            total_critic_loss += critic_loss.item()
+
+        avg_actor_loss = total_actor_loss / len(sfc_list)
+        avg_critic_loss = total_critic_loss / len(sfc_list)
+        return avg_actor_loss, avg_critic_loss
+
 class DDPG:
-    def __init__(self, node_state_dim, vnf_state_dim, state_input_dim, state_output_dim, action_dim, device='cpu'):
-        self.actor = Actor(node_state_dim, vnf_state_dim, state_output_dim, action_dim).to(device)
-        self.target_actor = Actor(node_state_dim, vnf_state_dim, state_output_dim, action_dim).to(device)
+    def __init__(self, node_state_dim, vnf_state_dim, state_output_dim, action_dim, device='cpu'):
+        self.actor = StateNetworkActor(node_state_dim, vnf_state_dim, state_output_dim, action_dim).to(device)
+        self.target_actor = StateNetworkActor(node_state_dim, vnf_state_dim, state_output_dim, action_dim).to(device)
         self.target_actor.load_state_dict(self.actor.state_dict())
         self.actor_optimizer = optim.Adam(self.actor.parameters())
 
-        self.critic = Critic(node_state_dim, vnf_state_dim, state_output_dim, action_dim).to(device)
-        self.target_critic = Critic(node_state_dim, vnf_state_dim, state_output_dim, action_dim).to(device)
+        self.critic = StateNetworkCritic(node_state_dim, vnf_state_dim, state_output_dim, action_dim).to(device)
+        self.target_critic = StateNetworkCritic(node_state_dim, vnf_state_dim, state_output_dim, action_dim).to(device)
         self.target_critic.load_state_dict(self.critic.state_dict())
         self.critic_optimizer = optim.Adam(self.critic.parameters())
 
@@ -233,7 +346,7 @@ if __name__ == '__main__':
     state_input_dim = node_state_dim * env.num_nodes + config.MAX_SFC_LENGTH * vnf_state_dim
     state_output_dim = (env.num_nodes + config.MAX_SFC_LENGTH) * vnf_state_dim
 
-    ddpg = DDPG(node_state_dim, vnf_state_dim, state_input_dim, state_output_dim,
+    ddpg = DDPG(node_state_dim, vnf_state_dim, state_output_dim,
                       config.MAX_SFC_LENGTH, device)
 
     for iteration in range(config.ITERATION):
