@@ -100,7 +100,7 @@ class MultiheadAttention(nn.Module):
 class Encoder(nn.Module):
     def __init__(self, dim_model):
         super().__init__()
-        self.encoder_layer = nn.TransformerEncoderLayer(d_model=dim_model, nhead=3, dim_feedforward=8, batch_first=True)
+        self.encoder_layer = nn.TransformerEncoderLayer(d_model=dim_model, nhead=2, dim_feedforward=8, batch_first=True)
         self.encoder = nn.TransformerEncoder(encoder_layer=self.encoder_layer, num_layers=2)
 
     def forward(self, sfc_state):
@@ -109,7 +109,7 @@ class Encoder(nn.Module):
 class StateNetwork(nn.Module):
     def __init__(self, net_state_dim, vnf_state_dim):
         super().__init__()
-        self.net_attention = GAT(input_dim=net_state_dim, hidden_dim=64, output_dim=3, num_heads=8)
+        self.net_attention = GAT(input_dim=net_state_dim, hidden_dim=64, output_dim=4, num_heads=8)
         # self.sfc_attention = MultiheadAttention(dim_model=vnf_state_dim, dim_k=3, dim_v=3, num_heads=1)
         self.sfc_attention = Encoder(dim_model=vnf_state_dim)
 

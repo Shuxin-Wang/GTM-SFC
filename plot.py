@@ -26,6 +26,7 @@ def show_result(dir_path):
     plt.title('Reward')
     for i in range(agent_num):
         plt.plot(reward_list[i], label=agent_name[i] + ' Reward')
+    # plt.ylim((13,18))
     plt.legend()
 
     plt.figure()

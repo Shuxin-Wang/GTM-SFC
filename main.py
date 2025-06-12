@@ -59,10 +59,10 @@ if __name__ == '__main__':
 
     # input: batch_size * (num_nodes + max_sfc_length) * vnf_state_dim
     # output: batch_size * max_sfc_length * num_nodes
-    agent = DDPG(env.num_nodes, node_state_dim, vnf_state_dim, state_output_dim,
-                 config.MAX_SFC_LENGTH * env.num_nodes, device)
+    # agent = DDPG(env.num_nodes, node_state_dim, vnf_state_dim, state_output_dim,
+    #              config.MAX_SFC_LENGTH * env.num_nodes, device)
 
-    # agent = NCO(vnf_state_dim, env.num_nodes, device)
+    agent = NCO(vnf_state_dim, env.num_nodes, device)
 
     # train
 

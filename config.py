@@ -9,7 +9,7 @@ LEARNING_RATE = 0.001
 NUM_VNF_TYPES = 8   # number of VNF types
 
 MIN_SFC_LENGTH = 3
-MAX_SFC_LENGTH = 6
+MAX_SFC_LENGTH = 12
 
 # convert string to boolean value
 def str2bool(s):

@@ -52,20 +52,24 @@ class StateNetworkActor(nn.Module):
         return action
 
 class StateNetworkCritic(nn.Module):
-    def __init__(self, net_state_dim, vnf_state_dim, state_dim, action_dim, hidden_dim=512):
+    def __init__(self, net_state_dim, vnf_state_dim, hidden_dim=512):
         super().__init__()
         self.state_network = StateNetwork(net_state_dim, vnf_state_dim)
-        self.l1 = nn.Linear(state_dim + action_dim, hidden_dim)
-        self.l2 = nn.Linear(hidden_dim, hidden_dim)
-        self.l3 = nn.Linear(hidden_dim, 1)
+        self.state_linear = nn.Linear(vnf_state_dim, 1)
+        self.l1 = nn.Linear(vnf_state_dim + config.MAX_SFC_LENGTH, hidden_dim)
+        self.l2 = nn.Linear(hidden_dim, 1)
 
     def forward(self, state, action, mask=None):
-        state = self.state_network(state, mask)
-        state = torch.flatten(state, start_dim=1)
+        state = self.state_network(state, mask) # batch_size * (node_num + max_sfc_length) * vnf_state_dim
+        # state attention pooling
+        score = self.state_linear(state)
+        weight = torch.softmax(score, dim=1)
+        state = (state * weight).sum(dim=1)
+        # print(state.shape)
+        # print(action.shape)
         x = torch.cat((state, action), dim=1)
         x = self.l1(x)
-        x = self.l2(F.relu(x))
-        q = self.l3(F.relu(x))
+        q = self.l2(F.relu(x))
         return q
 
 class DDPG:
@@ -75,8 +79,8 @@ class DDPG:
         self.target_actor.load_state_dict(self.actor.state_dict())
         self.actor_optimizer = optim.Adam(self.actor.parameters())
 
-        self.critic = StateNetworkCritic(node_state_dim, vnf_state_dim, state_output_dim, action_dim).to(device)
-        self.target_critic = StateNetworkCritic(node_state_dim, vnf_state_dim, state_output_dim, action_dim).to(device)
+        self.critic = StateNetworkCritic(node_state_dim, vnf_state_dim).to(device)
+        self.target_critic = StateNetworkCritic(node_state_dim, vnf_state_dim).to(device)
         self.target_critic.load_state_dict(self.critic.state_dict())
         self.critic_optimizer = optim.Adam(self.critic.parameters())
 
@@ -147,7 +151,8 @@ class DDPG:
             dones = torch.tensor(batch_dones, dtype=torch.float32).unsqueeze(1).to(self.device)
 
             logits = self.actor(states)
-            actor_loss = -self.critic(states, logits.detach()).mean()
+            actions = torch.argmax(logits, dim=-1) # batch_size * max_sfc_length
+            actor_loss = -self.critic(states, actions).mean()
             self.actor_loss_list.append(actor_loss.item())
 
             self.actor_optimizer.zero_grad()
@@ -158,7 +163,8 @@ class DDPG:
             current_Q = self.critic(states, actions)
 
             with torch.no_grad():
-                next_action = self.target_actor(next_states)
+                next_logits = self.target_actor(next_states)
+                next_action = torch.argmax(next_logits, dim=-1)
                 target_Q = self.target_critic(next_states, next_action)
                 target_Q = rewards + ((1 - dones) * discount * target_Q)
 

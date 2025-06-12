@@ -48,12 +48,15 @@ class SFCBatchGenerator:
     # convert sfc batch list to sfc state batch list [batch_size, len=sfc_length, dim=3(size, latency, bandwidth)]
     def get_sfc_states(self):
         sfc_states = []
-        for batch in range(self.batch_size):
-            sfc = self.sfc[batch]
+        for i in range(self.batch_size):
+            sfc = self.sfc[i]
             sfc_list = []
+            position = 1
             for vnf_type in sfc:
                 qos = self.vnf_type_to_qos(vnf_type-1)
+                qos.append(position)    # position embedding
                 sfc_list.append(qos)
+                position += 1
             sfc_states.append(sfc_list)
         sfc_states = torch.tensor(sfc_states, dtype=torch.float32)
         return sfc_states
@@ -77,8 +80,8 @@ if __name__ == '__main__':
     sfc_generator.show_sfc_batch()
 
     # get sfc states test
-    # test_states = sfc_generator.get_sfc_states()
-    # print('test states:\n', test_states)
+    test_states = sfc_generator.get_sfc_states()
+    print('test states:\n', test_states)
 
     # get sfc masks test
     # sfc_masks = sfc_generator.get_sfc_masks()
