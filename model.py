@@ -47,6 +47,7 @@ class ScaledDotProductAttention(nn.Module):
         return output, attention
 
 
+
 class MultiheadAttention(nn.Module):
     def __init__(self, dim_model, dim_k, dim_v, num_heads, dropout=0.1):  # dim_model = dim_k * num_heads
         super().__init__()
