@@ -18,7 +18,9 @@ def train(agent, env, sfc_generator):
     critic_loss_list = []
     reward_list = []
 
-    tqdm.write('-' * 20 + 'Agent training start' + '-' * 20 + '\t')
+    agent_name = agent.__class__.__name__
+
+    tqdm.write('-' * 20 + agent_name + ' training start' + '-' * 20 + '\t')
 
     pbar = tqdm(range(config.ITERATION), desc='Training Progress')
     for iteration in pbar:
@@ -38,8 +40,6 @@ def train(agent, env, sfc_generator):
     training_time = time.time() - start_time
     print('Training complete in {:.2f} seconds.'.format(training_time))
 
-    agent_name = agent.__class__.__name__
-
     agent.training_logs = {
         'reward_list': reward_list,
         'actor_loss_list': actor_loss_list,
@@ -47,11 +47,11 @@ def train(agent, env, sfc_generator):
         'training_time': training_time
     }
 
-    csv_file_path = 'save/result/' + agent_name + '.csv'
+    csv_file_path = 'save/result/' + agent_name + '_train.csv'
     df = pd.DataFrame({'Reward': reward_list, 'Actor Loss': actor_loss_list, 'Critic Loss': critic_loss_list})
     os.makedirs(os.path.dirname(csv_file_path), exist_ok=True)
     df.to_csv(csv_file_path, index=True)
-    print('Results saved to {}'.format(csv_file_path))
+    print('Training results saved to {}'.format(csv_file_path))
 
     agent_file_path = 'save/model/' + agent_name + '.pth'
     os.makedirs(os.path.dirname(agent_file_path), exist_ok=True)
@@ -60,8 +60,13 @@ def train(agent, env, sfc_generator):
 
 
 def evaluate(agent, env, sfc_generator, episodes=10):
+    agent_name = agent.__class__.__name__
     agent.actor.eval()
-    rewards = []
+    placement_reward_list = []
+    power_consumption_list = []
+    exceeded_penalty_list = []
+    reward_list = []
+
     for _ in range(episodes):
         env.clear()
         sfc_list = sfc_generator.get_sfc_batch()
@@ -74,9 +79,22 @@ def evaluate(agent, env, sfc_generator, episodes=10):
                 action = agent.select_action([state], exploration=False)
                 placement = action[0][:len(sfc_list[i])].squeeze(0)
                 env.step(sfc, placement)
-                rewards.append(env.reward)
+                placement_reward_list.append(env.placement_reward)
+                power_consumption_list.append(env.power_consumption)
+                exceeded_penalty_list.append(env.exceeded_penalty)
+                reward_list.append(env.reward)
             env.clear_sfc()
-    print(agent.__class__.__name__ + ' Test Average Reward:', np.mean(rewards))
+
+    csv_file_path = 'save/result/' + agent_name + '_evaluate.csv'
+    os.makedirs(os.path.dirname(csv_file_path), exist_ok=True)
+    df = pd.DataFrame({
+        'Placement Reward': placement_reward_list,
+        'Power Consumption': power_consumption_list,
+        'Exceeded Penalty': exceeded_penalty_list,
+        'Reward': reward_list
+    })
+    df.to_csv(csv_file_path, index=True)
+    print('Evaluation results saved to {}'.format(csv_file_path))
 
 
 if __name__ == '__main__':
@@ -105,16 +123,17 @@ if __name__ == '__main__':
     # input: batch_size * (num_nodes + max_sfc_length) * vnf_state_dim
     # output: batch_size * max_sfc_length * num_nodes
 
-    # agent = DDPG(env.num_nodes, node_state_dim, vnf_state_dim, state_output_dim,
-    #              config.MAX_SFC_LENGTH * env.num_nodes, device)
-
-    # agent = NCO(vnf_state_dim, env.num_nodes, device)
-
-    # agent = EnhancedNCO(env.num_nodes, node_state_dim, vnf_state_dim, state_output_dim,
-    #              config.MAX_SFC_LENGTH * env.num_nodes, device)
-
     # train
-    # train(agent, env, sfc_generator)
+    agent_list = [
+        # NCO(vnf_state_dim, env.num_nodes, device),
+        # EnhancedNCO(env.num_nodes, node_state_dim, vnf_state_dim, state_output_dim,
+        #              config.MAX_SFC_LENGTH * env.num_nodes, device),
+        DDPG(env.num_nodes, node_state_dim, vnf_state_dim, state_output_dim,
+             config.MAX_SFC_LENGTH * env.num_nodes, device)
+    ]
+
+    # for agent in agent_list:
+    #     train(agent, env, sfc_generator)
 
     # evaluate
     all_models = os.listdir('save/model')

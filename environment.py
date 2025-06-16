@@ -236,9 +236,9 @@ class Environment:
 
         next_node_states = self.aggregate_features()
         # reward = torch.tensor(self.reward, dtype=torch.float32)
-        reward = torch.tanh(torch.tensor(self.reward / 1e3, dtype=torch.float32))
+        # reward = torch.tanh(torch.tensor(self.reward / 1e3, dtype=torch.float32))
 
-        return next_node_states, reward
+        return next_node_states, self.reward
 
     def render(self):
         # todo: show more details

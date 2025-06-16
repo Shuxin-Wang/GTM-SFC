@@ -8,6 +8,7 @@ from collections import deque
 import networkx as nx
 from sympy.physics.units import acceleration_due_to_gravity
 from torch.nn.functional import batch_norm
+from torch.utils.benchmark import ordered_unique
 from torch_geometric.data import Data
 import config
 import environment
@@ -65,9 +66,8 @@ class StateNetworkCritic(nn.Module):
         # state attention pooling
         score = self.state_linear(state)
         weight = torch.softmax(score, dim=1)
-        state = (state * weight).sum(dim=1)
-        # print(state.shape)
-        # print(action.shape)
+        state = (state * weight).sum(dim=1) # batch_size * vnf_state_dim
+        action = action.squeeze(1)  # batch_size * max_sfc_length
         x = torch.cat((state, action), dim=1)
         x = self.l1(x)
         q = self.l2(F.relu(x))
@@ -153,8 +153,6 @@ class DDPG:
             next_states = list(batch_next_states)
             dones = torch.tensor(batch_dones, dtype=torch.float32).unsqueeze(1).to(self.device)
 
-            logits = self.actor(states)
-            actions = torch.argmax(logits, dim=-1) # batch_size * max_sfc_length
             actor_loss = -self.critic(states, actions).mean()
             self.actor_loss_list.append(actor_loss.item())
 
@@ -166,9 +164,10 @@ class DDPG:
             current_Q = self.critic(states, actions)
 
             with torch.no_grad():
-                next_logits = self.target_actor(next_states)
-                next_action = torch.argmax(next_logits, dim=-1)
+                _, next_probs = self.target_actor(next_states)
+                next_action = torch.argmax(next_probs, dim=-1)
                 target_Q = self.target_critic(next_states, next_action)
+                rewards = (rewards - rewards.mean()) / (rewards.std() + 1e-8)  # rewards normalization
                 target_Q = rewards + ((1 - dones) * discount * target_Q)
 
             loss_function = nn.MSELoss()
@@ -334,6 +333,7 @@ class NCO(nn.Module):
 
             with torch.no_grad():
                 baseline = self.critic(states)
+            rewards = (rewards - rewards.mean()) / (rewards.std() + 1e-8)   # rewards normalization
             advantage = rewards - baseline
 
             actor_loss = -(advantage * log_probs).mean()
@@ -442,6 +442,8 @@ class EnhancedNCO(nn.Module):
 
             with torch.no_grad():
                 baseline = self.critic(states)
+                print(baseline.shape)
+            rewards = (rewards - rewards.mean()) / (rewards.std() + 1e-8)  # rewards normalization
             advantage = rewards - baseline
 
             actor_loss = -(advantage * log_probs).mean()
