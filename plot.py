@@ -86,7 +86,7 @@ def show_evaluate_result(dir_path):
                 plt.text(
                     j + i * bar_width,  # x
                     value + (0.01 if value >= 0 else -0.01) * max(abs(df[metric])),  # y
-                    f'{value:.1f}',
+                    f'{value:.2f}',
                     ha='center',
                     va='bottom' if value >= 0 else 'top'
                 )
@@ -102,5 +102,5 @@ def show_evaluate_result(dir_path):
     plt.show()
 
 if __name__ == '__main__':
-    show_train_result('save/result/train')
-    # show_evaluate_result('save/result/evaluate')
+    # show_train_result('save/result/train')
+    show_evaluate_result('save/result/evaluate')
