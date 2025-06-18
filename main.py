@@ -6,6 +6,7 @@ import pandas as pd
 import os
 from torch_geometric.data import Data
 import time
+import plot
 import environment
 from sfc import SFCBatchGenerator
 import config
@@ -101,7 +102,7 @@ def evaluate(agent, env, sfc_generator, sfc_length_list, episodes=10):
                     power_consumption_list.append(env.power_consumption)
                     exceeded_penalty_list.append(env.exceeded_penalty)
                     reward_list.append(env.reward)
-                sfc_placed += (len(sfc) == sum(env.vnf_placement))
+                sfc_placed += (len(sfc_list[i]) == sum(env.vnf_placement))
                 env.clear_sfc()
 
         avg_placement_reward_list.append(np.mean(placement_reward_list))
@@ -173,4 +174,4 @@ if __name__ == '__main__':
         agent = torch.load(agent_file_path, weights_only=False)
         evaluate(agent, env, sfc_generator, sfc_length_list)
 
-    # plot.show_evaluate_result('save/result/evaluate')
+    plot.show_evaluate_result('save/result/evaluate')
