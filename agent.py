@@ -1,5 +1,4 @@
 import random
-import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -9,8 +8,9 @@ import networkx as nx
 from torch_geometric.data import Data
 import config
 import environment
-from model import StateNetwork
 from sfc import SFCBatchGenerator
+from actor import StateNetworkActor, Seq2SeqActor
+from critic import StateNetworkCritic, LSTMCritic
 
 class ReplayBuffer:
     def __init__(self, capacity):
@@ -28,47 +28,6 @@ class ReplayBuffer:
     def __len__(self):
         return len(self.buffer)
 
-# todo: mask delivery
-class StateNetworkActor(nn.Module):
-    def __init__(self, num_nodes, net_state_dim, vnf_state_dim, input_dim, output_dim, hidden_dim=512):
-        super().__init__()
-        self.num_nodes = num_nodes
-        self.state_network = StateNetwork(net_state_dim, vnf_state_dim)
-        self.l1 = nn.Linear(input_dim, hidden_dim)
-        self.l2 = nn.Linear(hidden_dim, hidden_dim)
-        self.l3 = nn.Linear(hidden_dim, output_dim)
-        self.layer_norm = nn.LayerNorm(output_dim)
-
-    def forward(self, state, mask=None):
-        x = self.state_network(state, mask)
-        x = torch.flatten(x, start_dim=1)
-        x = self.l1(x)
-        x = self.l2(F.relu(x))
-        x = self.l3(F.relu(x))
-        logits = self.layer_norm(x)
-        logits = logits.view(logits.size(0), config.MAX_SFC_LENGTH, self.num_nodes)
-        probs = F.softmax(logits, dim=-1)
-        return logits, probs
-
-class StateNetworkCritic(nn.Module):
-    def __init__(self, net_state_dim, vnf_state_dim, hidden_dim=512):
-        super().__init__()
-        self.state_network = StateNetwork(net_state_dim, vnf_state_dim)
-        self.state_linear = nn.Linear(vnf_state_dim, 1)
-        self.l1 = nn.Linear(vnf_state_dim + config.MAX_SFC_LENGTH, hidden_dim)
-        self.l2 = nn.Linear(hidden_dim, 1)
-
-    def forward(self, state, action, mask=None):
-        state = self.state_network(state, mask) # batch_size * (node_num + max_sfc_length + 2) * vnf_state_dim
-        # state attention pooling
-        score = self.state_linear(state)
-        weight = torch.softmax(score, dim=1)
-        state = (state * weight).sum(dim=1) # batch_size * vnf_state_dim
-        action = action.squeeze(1)  # batch_size * max_sfc_length
-        x = torch.cat((state, action), dim=1)
-        x = self.l1(x)
-        q = self.l2(F.relu(x))
-        return q
 
 class DDPG:
     def __init__(self,num_nodes, node_state_dim, vnf_state_dim, state_output_dim, action_dim, device='cpu'):
@@ -185,82 +144,13 @@ class DDPG:
             for param, target_param in zip(self.actor.parameters(), self.target_actor.parameters()):
                 target_param.data.copy_(tau * param.data + (1 - tau) * target_param.data)
 
-class Seq2SeqActor(nn.Module):
-    def __init__(self, vnf_state_dim, hidden_dim, num_layers, num_nodes):
-        super().__init__()
-        self.vnf_state_dim = vnf_state_dim
-
-        self.node_linear = nn.Linear(1, vnf_state_dim)  # batch_size * 2 * vnf_state_dim
-        self.embedding = nn.Linear(vnf_state_dim, hidden_dim)   # input: batch_size * (max_sfc_length + 2) * vnf_state_dim
-        self.encoder = nn.LSTM(
-            input_size=hidden_dim,
-            hidden_size=hidden_dim,
-            num_layers=num_layers,
-            batch_first=True
-        )
-        self.decoder = nn.LSTM(
-            input_size=hidden_dim,
-            hidden_size=hidden_dim,
-            num_layers=num_layers,
-            batch_first=True
-        )
-        self.fc_out = nn.Linear(hidden_dim, num_nodes)  # output: batch_size * (max_sfc_length + 2) * num_nodes
-
-    def forward(self, state):
-        _, sfc_state, source_dest_node_pair = zip(*state)
-        if len(sfc_state) > 1:
-            sfc_state = torch.stack(sfc_state, dim=0)
-            source_dest_node_pair = torch.stack(source_dest_node_pair, dim=0).unsqueeze(2)
-        else:
-            sfc_state = sfc_state[0].unsqueeze(0)
-            source_dest_node_pair = source_dest_node_pair[0].unsqueeze(0)
-        batch_size = sfc_state.shape[0]
-        sfc_state = sfc_state.view(batch_size, config.MAX_SFC_LENGTH, self.vnf_state_dim)
-        source_dest_node_pair = source_dest_node_pair.view(batch_size, 2, 1)
-        source_dest_node_pair = self.node_linear(source_dest_node_pair) # batch_size * 2 * vnf_state_dim
-        sfc = torch.cat((sfc_state, source_dest_node_pair), dim=1)   # batch_size * (max_sfc_length + 2) * vnf_state_dim
-        embedded = self.embedding(sfc)  # batch_size * max_sfc_length * vnf_state_dim
-        encoder_outputs, (h, c) = self.encoder(embedded)    # output, hidden state, cell state
-        decoder_outputs, _ = self.decoder(encoder_outputs, (h, c))
-        logits = self.fc_out(decoder_outputs)
-        probs = F.softmax(logits, dim=-1)
-        return logits, probs
-
-class ValueBaseline(nn.Module):
-    def __init__(self, vnf_state_dim, hidden_dim):
-        super().__init__()
-        self.vnf_state_dim = vnf_state_dim
-        self.node_linear = nn.Linear(1, vnf_state_dim)
-        self.embedding = nn.Linear(vnf_state_dim, hidden_dim)
-        self.encoder = nn.LSTM(
-            input_size=hidden_dim,
-            hidden_size=hidden_dim,
-            num_layers=1,
-            batch_first=True
-        )
-        self.fc_out = nn.Linear(hidden_dim, 1)
-
-    def forward(self, state):
-        _, sfc_state, source_dest_node_pair = zip(*state)
-        if len(sfc_state) > 1:
-            sfc_state = torch.stack(sfc_state, dim=0)
-            source_dest_node_pair = torch.stack(source_dest_node_pair, dim=0).unsqueeze(2)
-        else:
-            sfc_state = torch.tensor(sfc_state[0]).unsqueeze(0)
-            source_dest_node_pair = torch.tensor(source_dest_node_pair[0]).unsqueeze(0)
-        source_dest_node_pair = self.node_linear(source_dest_node_pair)
-        sfc = torch.cat((sfc_state, source_dest_node_pair), dim=1)
-        embedded = self.embedding(sfc)
-        _, (h, _) = self.encoder(embedded)
-        value = self.fc_out(h[-1])
-        return value    # batch_size * 1
 
 class NCO(nn.Module):
     def __init__(self, vnf_state_dim, num_nodes, device='cpu'):
         super().__init__()
 
         self.actor = Seq2SeqActor(vnf_state_dim, hidden_dim=8, num_layers=2, num_nodes=num_nodes).to(device)
-        self.critic = ValueBaseline(vnf_state_dim, hidden_dim=8).to(device)
+        self.critic = LSTMCritic(vnf_state_dim, hidden_dim=8).to(device)
 
         self.actor_optimizer = optim.Adam(self.actor.parameters(), lr=1e-4)
         self.critic_optimizer = optim.Adam(self.critic.parameters(), lr=1e-3)
@@ -372,7 +262,7 @@ class EnhancedNCO(nn.Module):
         super().__init__()
 
         self.actor = StateNetworkActor(num_nodes, node_state_dim, vnf_state_dim, state_output_dim, action_dim).to(device)
-        self.critic = ValueBaseline(vnf_state_dim, hidden_dim=8).to(device)
+        self.critic = LSTMCritic(vnf_state_dim, hidden_dim=8).to(device)
 
         self.actor_optimizer = optim.Adam(self.actor.parameters(), lr=1e-4)
         self.critic_optimizer = optim.Adam(self.critic.parameters(), lr=1e-3)
