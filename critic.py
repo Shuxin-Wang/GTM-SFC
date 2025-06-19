@@ -49,7 +49,7 @@ class LSTMCritic(nn.Module):
             sfc_state = torch.tensor(sfc_state[0]).unsqueeze(0)
             source_dest_node_pair = torch.tensor(source_dest_node_pair[0]).unsqueeze(0)
         source_dest_node_pair = self.node_linear(source_dest_node_pair)
-        sfc = torch.cat((sfc_state, source_dest_node_pair), dim=1)
+        sfc = torch.cat((sfc_state, source_dest_node_pair), dim=1)  # batch_size * (max_sfc_length + 2) * vnf_state_dim
         embedded = self.embedding(sfc)
         _, (h, _) = self.encoder(embedded)
         value = self.fc_out(h[-1])

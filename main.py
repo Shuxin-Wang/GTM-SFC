@@ -10,7 +10,7 @@ import plot
 import environment
 from sfc import SFCBatchGenerator
 import config
-from agent import DDPG, NCO, EnhancedNCO
+from agent import NCO, ActorEnhancedNCO, CriticEnhancedNCO, DDPG
 
 def train(agent, env, sfc_generator):
     actor_loss_list = []
@@ -24,21 +24,29 @@ def train(agent, env, sfc_generator):
     pbar = tqdm(range(config.ITERATION), desc='Training Progress')
 
     start_time = time.time()
-    for iteration in pbar:
-        env.clear()
-        agent.fill_replay_buffer(env, sfc_generator, 50)
-        reward_list.append(np.mean(agent.episode_reward_list))
+    for _ in pbar:
+        agent.fill_replay_buffer(env, sfc_generator, 50)    # fill replay buffer with 50 * config.BATCH_SIZE data
 
-        agent.train(5, 10)
+        agent.train(10, 100)  # episode * batch_size, update parameters for episode times per batch size
+        actor_loss_list.extend(agent.actor_loss_list)
+        critic_loss_list.extend(agent.critic_loss_list)
 
-        actor_loss = np.mean(agent.actor_loss_list)
-        actor_loss_list.append(actor_loss)
-        critic_loss = np.mean(agent.critic_loss_list)
-        critic_loss_list.append(critic_loss)
+        agent.test(env, sfc_generator)
+        reward_list.append(agent.episode_reward)
 
-        pbar.set_postfix({'Actor Loss': actor_loss, 'Critic Loss': critic_loss,'Avg Episode Reward': reward_list[iteration].item()})
+        pbar.set_postfix({
+            'Actor Loss': np.mean(agent.actor_loss_list),
+            'Critic Loss': np.mean(agent.critic_loss_list),
+            'Episode Reward': agent.episode_reward
+        })
+
     training_time = time.time() - start_time
     print('Training complete in {:.2f} seconds.'.format(training_time))
+
+    # fill list to same length
+    list_length = len(actor_loss_list)
+    reward_list += [np.nan] * (list_length - len(reward_list))
+    training_time_list = [training_time] + [np.nan] * (list_length - 1)
 
     agent.training_logs = {
         'reward_list': reward_list,
@@ -48,7 +56,7 @@ def train(agent, env, sfc_generator):
     }
 
     csv_file_path = 'save/result/train/' + agent_name + '.csv'
-    df = pd.DataFrame({'Reward': reward_list, 'Actor Loss': actor_loss_list, 'Critic Loss': critic_loss_list})
+    df = pd.DataFrame({'Reward': reward_list, 'Actor Loss': actor_loss_list, 'Critic Loss': critic_loss_list, 'Training Time': training_time_list})
     os.makedirs(os.path.dirname(csv_file_path), exist_ok=True)
     df.to_csv(csv_file_path, index=True)
     print('Training results saved to {}'.format(csv_file_path))
@@ -153,16 +161,17 @@ if __name__ == '__main__':
     # output: batch_size * max_sfc_length * num_nodes
 
     # train
-    # agent_list = [
+    agent_list = [
     #     NCO(vnf_state_dim, env.num_nodes, device),
-    #     EnhancedNCO(env.num_nodes, node_state_dim, vnf_state_dim, state_output_dim,
-    #                  config.MAX_SFC_LENGTH * env.num_nodes, device),
-    #     DDPG(env.num_nodes, node_state_dim, vnf_state_dim, state_output_dim,
-    #          config.MAX_SFC_LENGTH * env.num_nodes, device)
-    # ]
-    #
-    # for agent in agent_list:
-    #     train(agent, env, sfc_generator)
+    #     ActorEnhancedNCO(env.num_nodes, node_state_dim, vnf_state_dim, state_output_dim,
+    #                     config.MAX_SFC_LENGTH * env.num_nodes, device),
+    #     CriticEnhancedNCO(env.num_nodes, node_state_dim, vnf_state_dim, device),
+        DDPG(env.num_nodes, node_state_dim, vnf_state_dim, state_output_dim,
+             config.MAX_SFC_LENGTH * env.num_nodes, device)
+    ]
+
+    for agent in agent_list:
+        train(agent, env, sfc_generator)
 
     # evaluate
     all_models = os.listdir('save/model')
@@ -174,4 +183,5 @@ if __name__ == '__main__':
         agent = torch.load(agent_file_path, weights_only=False)
         evaluate(agent, env, sfc_generator, sfc_length_list)
 
+    plot.show_train_result('save/result/train')
     plot.show_evaluate_result('save/result/evaluate')

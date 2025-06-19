@@ -32,6 +32,7 @@ class Seq2SeqActor(nn.Module):
         self.vnf_state_dim = vnf_state_dim
 
         self.node_linear = nn.Linear(1, vnf_state_dim)  # batch_size * 2 * vnf_state_dim
+        self.sfc_linear = nn.Linear(config.MAX_SFC_LENGTH + 2, config.MAX_SFC_LENGTH)
         self.embedding = nn.Linear(vnf_state_dim, hidden_dim)   # input: batch_size * (max_sfc_length + 2) * vnf_state_dim
         self.encoder = nn.LSTM(
             input_size=hidden_dim,
@@ -60,10 +61,11 @@ class Seq2SeqActor(nn.Module):
         source_dest_node_pair = source_dest_node_pair.view(batch_size, 2, 1)
         source_dest_node_pair = self.node_linear(source_dest_node_pair)  # batch_size * 2 * vnf_state_dim
         sfc = torch.cat((sfc_state, source_dest_node_pair),
-                        dim=1)  # batch_size * (max_sfc_length + 2) * vnf_state_dim
-        embedded = self.embedding(sfc)  # batch_size * max_sfc_length * vnf_state_dim
+                        dim=1).transpose(1, 2)  # batch_size * vnf_state_dim * (max_sfc_length + 2)
+        sfc = self.sfc_linear(sfc).transpose(1, 2)  # batch_size * max_sfc_length * vnf_state_dim
+        embedded = self.embedding(sfc)  # batch_size * max_sfc_length * hidden_dim
         encoder_outputs, (h, c) = self.encoder(embedded)  # output, hidden state, cell state
         decoder_outputs, _ = self.decoder(encoder_outputs, (h, c))
-        logits = self.fc_out(decoder_outputs)
+        logits = self.fc_out(decoder_outputs)   # batch_size * max_sfc_length * num_nodes
         probs = F.softmax(logits, dim=-1)
         return logits, probs

@@ -22,25 +22,25 @@ def show_train_result(dir_path):
         actor_loss_list.append(df['Actor Loss'])
         critic_loss_list.append(df['Critic Loss'])
 
-    plt.figure()
+    # plt.figure()
     # plt.subplot(1, 3, 1)
-    plt.title('Reward')
-    for i in range(agent_num):
-        plt.plot(reward_list[i], label=agent_name_list[i] + ' Reward')
-    # plt.ylim((13,18))
-    plt.legend()
+    # plt.title('Reward')
+    # for i in range(agent_num):
+    #     plt.plot(reward_list[i], label=agent_name_list[i] + ' Reward')
+    # # plt.ylim((13,18))
+    # plt.legend()
 
     plt.figure()
     # plt.subplot(1, 3, 2)
     plt.title('Actor Loss')
-    for i in range(agent_num):
+    for i in range(agent_num-1):
         plt.plot(actor_loss_list[i], label=agent_name_list[i] + ' Actor Loss')
     plt.legend()
 
     plt.figure()
     # plt.subplot(1, 3, 3)
     plt.title('Critic Loss')
-    for i in range(agent_num):
+    for i in range(agent_num-1):
         plt.plot(critic_loss_list[i], label=agent_name_list[i] + ' Critic Loss')
     plt.legend()
 
@@ -63,10 +63,10 @@ def show_evaluate_result(dir_path):
     # row number in csv files
     index_num = len(df_list[0]) if df_list else 0
 
-    bar_width = 0.25
+    bar_width = 0.2
     index = np.arange(index_num)    # bar location
     labels = df_list[0]['Max SFC Length']
-    colors = ['#72b063', '#e29135', '#94c6cd']
+    colors = ['#72b063', '#e29135', '#94c6cd', '#925eb0', '#cc7c71']
 
     for metric in df_list[0].columns.tolist()[1:]:
         plt.figure(figsize=(10, 6))
