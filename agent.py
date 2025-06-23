@@ -9,8 +9,9 @@ from torch_geometric.data import Data
 import config
 import environment
 from sfc import SFCBatchGenerator
-from actor import StateNetworkActor, Seq2SeqActor
-from critic import StateNetworkCritic, LSTMCritic
+from actor import StateNetworkActor, Seq2SeqActor, DecoderActor
+from critic import StateNetworkCritic, LSTMCritic, DecoderCritic
+from module import Encoder
 
 class ReplayBuffer:
     def __init__(self, capacity):
@@ -497,6 +498,106 @@ class DDPG:
                 self.replay_buffer.push(state, action, reward, next_state, done)
                 env.clear_sfc()
             env.clear()
+
+    def train(self, episode, batch_size=10, discount=0.99, tau=0.005):
+
+        self.actor_loss_list.clear()
+        self.critic_loss_list.clear()
+
+        for e in range(episode):
+            batch_states, batch_actions, batch_rewards, batch_next_states, batch_dones = zip(*self.replay_buffer.sample(batch_size))
+            states = list(batch_states)  # states = [(net_state, sfc_state, source_dest_node_pair), (net_state, sfc_state, source_dest_node_pair)...]
+            actions = torch.stack(batch_actions, dim=0).to(self.device)  # actions = torch.tensor((action), (action)...)) batch_size * max_sfc_length
+            rewards = torch.tensor(batch_rewards, dtype=torch.float32).unsqueeze(1).to(self.device)
+            next_states = list(batch_next_states)
+            dones = torch.tensor(batch_dones, dtype=torch.float32).unsqueeze(1).to(self.device)
+
+            current_Q = self.critic(states, actions)
+
+            with torch.no_grad():
+                _, next_probs = self.target_actor(next_states)
+                next_action = torch.argmax(next_probs, dim=-1)
+                target_Q = self.target_critic(next_states, next_action)
+                rewards = (rewards - rewards.mean()) / (rewards.std() + 1e-8)  # rewards normalization
+                target_Q = rewards + ((1 - dones) * discount * target_Q)
+
+            critic_loss = F.mse_loss(current_Q, target_Q)
+
+            self.critic_optimizer.zero_grad()
+            critic_loss.backward()
+            torch.nn.utils.clip_grad_norm_(self.critic.parameters(), max_norm=1)
+            self.critic_optimizer.step()
+
+            self.critic_loss_list.append(critic_loss.item())
+
+            actor_actions = self.select_action(states)
+            actor_loss = -self.critic(states, actor_actions).mean()
+
+            self.actor_optimizer.zero_grad()
+            actor_loss.backward()
+            torch.nn.utils.clip_grad_norm_(self.actor.parameters(), max_norm=1)
+            self.actor_optimizer.step()
+
+            self.actor_loss_list.append(actor_loss.item())
+
+            for param, target_param in zip(self.critic.parameters(), self.target_critic.parameters()):
+                target_param.data.copy_(tau * param.data + (1 - tau) * target_param.data)
+
+            for param, target_param in zip(self.actor.parameters(), self.target_actor.parameters()):
+                target_param.data.copy_(tau * param.data + (1 - tau) * target_param.data)
+
+    def test(self, env, sfc_generator):
+        self.episode_reward = 0
+        env.clear()
+        sfc_list = sfc_generator.get_sfc_batch()
+        sfc_state_list = sfc_generator.get_sfc_states()
+        source_dest_node_pairs = sfc_generator.get_source_dest_node_pairs()
+        for i in range(sfc_generator.batch_size):  # each episode contains batch_size sfc
+            aggregate_features = env.aggregate_features()  # get aggregated node features
+            edge_index = env.get_edge_index()
+            net_state = Data(x=aggregate_features, edge_index=edge_index)
+            sfc_state = sfc_state_list[i]
+            source_dest_node_pair = source_dest_node_pairs[i]
+            state = (net_state.to(self.device), sfc_state.to(self.device), source_dest_node_pair.to(self.device))
+
+            with torch.no_grad():
+                action = self.select_action([state])  # action_dim: max_sfc_length * num_nodes
+
+            sfc = source_dest_node_pair.tolist() + sfc_list[i]
+            placement = action[0][:len(sfc_list[i])].squeeze(0)  # masked placement
+            _, reward = env.step(sfc, placement)
+
+            self.episode_reward += reward
+            env.clear_sfc()
+        env.clear()
+
+class DRLSFCP:
+    def __init__(self, num_nodes, net_state_dim, vnf_state_dim, embedding_dim=64):
+        super().__init__()
+        self.encoder = Encoder(vnf_state_dim, embedding_dim=embedding_dim)
+        self.actor = DecoderActor(num_nodes, net_state_dim, embedding_dim)
+        self.actor_optimizer = optim.Adam(self.actor.parameters(), lr=1e-4)
+        self.critic = DecoderCritic(num_nodes, net_state_dim, embedding_dim)
+        self.critic_optimizer = optim.Adam(self.critic.parameters(), lr=1e-3)
+
+        self.replay_buffer = ReplayBuffer(capacity=10000)
+
+        self.actor_loss_list = []
+        self.critic_loss_list = []
+
+        self.device = device
+
+        self.episode_reward = 0
+
+        self._last_hidden_state = None
+
+    def select_action(self, state):
+        outputs, hidden_state = self.encoder(state)
+
+        logits, outputs, hidden_state = self.actor(state)
+
+    def fill_replay_buffer(self, env, sfc_generator, episode):
+        pass
 
     def train(self, episode, batch_size=10, discount=0.99, tau=0.005):
 

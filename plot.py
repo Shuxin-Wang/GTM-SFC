@@ -23,29 +23,28 @@ def show_train_result(dir_path):
         critic_loss_list.append(df['Critic Loss'])
 
     # plt.figure()
-    # plt.subplot(1, 3, 1)
     # plt.title('Reward')
     # for i in range(agent_num):
     #     plt.plot(reward_list[i], label=agent_name_list[i] + ' Reward')
     # # plt.ylim((13,18))
     # plt.legend()
 
+    figure_path = 'save/result/plot/'
+
     plt.figure()
-    # plt.subplot(1, 3, 2)
     plt.title('Actor Loss')
-    for i in range(agent_num-1):
+    for i in range(agent_num):
         plt.plot(actor_loss_list[i], label=agent_name_list[i] + ' Actor Loss')
     plt.legend()
+    plt.savefig(figure_path + 'Actor Loss.png', dpi=300)
 
     plt.figure()
-    # plt.subplot(1, 3, 3)
     plt.title('Critic Loss')
-    for i in range(agent_num-1):
+    for i in range(agent_num):
         plt.plot(critic_loss_list[i], label=agent_name_list[i] + ' Critic Loss')
     plt.legend()
+    plt.savefig(figure_path + 'Critic Loss.png', dpi=300)
 
-    # figure_name = 'result.png'
-    # plt.savefig(figure_name, dpi=300)
     plt.show()
 
 def show_evaluate_result(dir_path):
@@ -67,6 +66,8 @@ def show_evaluate_result(dir_path):
     index = np.arange(index_num)    # bar location
     labels = df_list[0]['Max SFC Length']
     colors = ['#72b063', '#e29135', '#94c6cd', '#925eb0', '#cc7c71']
+
+    figure_path = 'save/result/plot/'
 
     for metric in df_list[0].columns.tolist()[1:]:
         plt.figure(figsize=(10, 6))
@@ -96,9 +97,10 @@ def show_evaluate_result(dir_path):
         plt.legend()
         plt.grid(axis='y', linestyle='--', alpha=0.3)
         plt.tight_layout()
+        plt.savefig(figure_path + metric + '.png', dpi=300)
 
     plt.show()
 
 if __name__ == '__main__':
-    show_train_result('save/result/train')
-    # show_evaluate_result('save/result/evaluate')
+    # show_train_result('save/result/train')
+    show_evaluate_result('save/result/evaluate')

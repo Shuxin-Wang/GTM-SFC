@@ -3,7 +3,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import networkx as nx
-from torch_geometric.nn import GATConv
+from torch.onnx.symbolic_opset11 import unsqueeze
+from torch_geometric.nn import GATConv, GCNConv
 from torch_geometric.data import Data, Batch
 from environment import Environment
 from sfc import SFCBatchGenerator
@@ -28,7 +29,6 @@ class GAT(nn.Module):
         x = self.norm(x)
         return x
 
-
 class ScaledDotProductAttention(nn.Module):
     def __init__(self, temperature, dropout=0.1):
         super().__init__()
@@ -45,8 +45,6 @@ class ScaledDotProductAttention(nn.Module):
         output = torch.matmul(attention, v)
 
         return output, attention
-
-
 
 class MultiheadAttention(nn.Module):
     def __init__(self, dim_model, dim_k, dim_v, num_heads, dropout=0.1):  # dim_model = dim_k * num_heads
@@ -98,7 +96,7 @@ class MultiheadAttention(nn.Module):
 
         return q, attention
 
-class Encoder(nn.Module):
+class TransformerEncoder(nn.Module):
     def __init__(self, dim_model):
         super().__init__()
         self.encoder_layer = nn.TransformerEncoderLayer(d_model=dim_model, nhead=2, dim_feedforward=8, batch_first=True)
@@ -112,7 +110,7 @@ class StateNetwork(nn.Module):
         super().__init__()
         self.net_attention = GAT(input_dim=net_state_dim, hidden_dim=64, output_dim=4, num_heads=8)
         # self.sfc_attention = MultiheadAttention(dim_model=vnf_state_dim, dim_k=3, dim_v=3, num_heads=1)
-        self.sfc_attention = Encoder(dim_model=vnf_state_dim)
+        self.sfc_attention = TransformerEncoder(dim_model=vnf_state_dim)
         self.node_linear = nn.Linear(1, vnf_state_dim, dtype=torch.float32)
 
     def forward(self, state, mask=None):
@@ -137,6 +135,121 @@ class StateNetwork(nn.Module):
         batch_state = torch.cat((batch_net_attention, batch_sfc_attention, batch_node_pair), dim=1)
 
         return batch_state
+
+# todo: drl-sfcp
+class GCNConvNet(nn.Module):
+    def __init__(self, input_dim, output_dim, embedding_dim=128, num_layers=3, batch_norm=True, dropout_prob=0.0):
+        super().__init__()
+        self.input_dim = input_dim
+        self.output_dim = output_dim
+        self.num_layers = num_layers
+
+        for layer_id in range(self.num_layers):
+            if self.num_layers == 1:
+                conv = GCNConv(input_dim, output_dim)
+            elif layer_id == 0:
+                conv = GCNConv(input_dim, embedding_dim)
+            elif layer_id == num_layers - 1:
+                conv = GCNConv(embedding_dim, output_dim)
+            else:
+                conv = GCNConv(embedding_dim, embedding_dim)
+
+            norm_dim = output_dim if layer_id == num_layers - 1 else embedding_dim
+            norm = nn.BatchNorm1d(norm_dim) if batch_norm else nn.Identity()
+            dout = nn.Dropout(dropout_prob) if dropout_prob < 1. else nn.Identity()
+
+            self.add_module('conv_{}'.format(layer_id), conv)
+            self.add_module('norm_{}'.format(layer_id), norm)
+            self.add_module('dout_{}'.format(layer_id), dout)
+
+        self._init_parameters()
+
+    def _init_parameters(self):
+        for layer_id in range(self.num_layers):
+            nn.init.orthogonal_(getattr(self, f'conv_{layer_id}').lin.weight)
+
+    def forward(self, data):
+        x, edge_index = data.x, data.edge_index
+        for layer_id in range(self.num_layers):
+            conv = getattr(self, 'conv_{}'.format(layer_id))
+            norm = getattr(self, 'norm_{}'.format(layer_id))
+            dout = getattr(self, 'dout_{}'.format(layer_id))
+            x = conv(x, edge_index)
+            if layer_id == self.num_layers - 1:
+                x = dout(norm(x))
+            else:
+                x = F.leaky_relu(dout(norm(x)))
+        return x
+
+class Attention(nn.Module):
+    def __init__(self, hidden_dim):
+        super().__init__()
+        self.attn = nn.Linear(hidden_dim * 2, hidden_dim)
+        self.v = nn.Linear(hidden_dim, 1, bias=False)
+
+    def forward(self, hidden, encoder_outputs, mask=None):
+        # hidden shape: (num_layers * num_directions, batch_size, hidden_dim)
+        # encoder_outputs shape: (batch_size, seq_len, hidden_dim * num_directions)
+        batch_size = encoder_outputs.size(0)
+        seq_len = encoder_outputs.size(1)
+        hidden = hidden.tranpose(0, 1).repeat(1, seq_len, 1)    # batch_size * seq_len * hidden_dim
+        energy = torch.tanh(self.attn(torch.cat([hidden, encoder_outputs], dim=2))) # batch_size * seq_len * hidden_dim
+        attn_weights = F.softmax(self.v(energy).squeeze(2), dim=1)  # batch_size * seq_len
+        if mask is not None:
+            attn_weights = attn_weights.masked_fill(mask == 0, -1e10)
+        context = torch.bmm(attn_weights.unsqueeze(1), encoder_outputs) # batch_size, 1, hidden_dim * num_directions
+        return context, attn_weights
+
+class Encoder(nn.Module):
+    def __init__(self, vnf_state_dim, embedding_dim=64):
+        super().__init__()
+        self.emb = nn.Linear(vnf_state_dim, embedding_dim)
+        self.gru = nn.GRU(embedding_dim, embedding_dim)
+
+    def forward(self, x):
+        # x = x.permute(1, 0, 2)    # change batch dim
+        embeddings = F.relu(self.emb(x))
+        outputs, hidden_state = self.gru(embeddings)
+        return outputs, hidden_state
+
+class Decoder(nn.Module):
+    def __init__(self, num_nodes, net_state_dim, embedding_dim=64):
+        super().__init__()
+        self.emb = nn.Embedding(num_nodes + 1, embedding_dim)   # node id -> embedding tensor
+        self.att = Attention(embedding_dim)
+        self.gcn = GCNConvNet(net_state_dim, embedding_dim, embedding_dim=embedding_dim, dropout_prob=0.)
+        self.mlp = nn.Sequential(
+            nn.Linear(embedding_dim, 1),
+            nn.Flatten()
+        )
+        self.gru = nn.GRU(embedding_dim, embedding_dim)
+        self._last_hidden_state = None
+
+    def forward(self, state, hidden_state, node_id, encoder_outputs):
+        net_state, sfc_state, source_dest_node_pair = zip(*state)
+        net_states_list = list(net_state)
+        sfc_states_list = list(sfc_state)
+
+        batch_size = len(net_states_list)
+        num_nodes = len(net_states_list[0].x)
+
+        batch_net_state = Batch.from_data_list(net_states_list)  # net state = DataBatch(x, edge_index, batch, ptr)
+        batch_sfc_state = torch.stack(sfc_states_list, dim=0)
+        batch_source_dest_node_pair = torch.stack(source_dest_node_pair, dim=0).unsqueeze(2)   # batch_size * 2 * 1
+
+        node_embeddings = self.gcn(batch_net_state)
+        node_embeddings = node_embeddings + hidden_state
+        logits = self.mlp(node_embeddings)
+
+        hidden_state = hidden_state.permute(1, 0, 2)    # change batch dim
+        node_emb = self.emb(node_id).unsqueeze(0)
+
+        context, attention = self.att(hidden_state, encoder_outputs)
+
+        gru_input = (context + node_emb).unsqueeze(0)
+        outputs, hidden_state = self.gru(gru_input, hidden_state)
+
+        return logits, outputs, hidden_state
 
 if __name__ == '__main__':
 

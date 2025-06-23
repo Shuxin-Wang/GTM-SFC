@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from module import StateNetwork
+from module import StateNetwork, Decoder
 import config
 
 
@@ -54,3 +54,13 @@ class LSTMCritic(nn.Module):
         _, (h, _) = self.encoder(embedded)
         value = self.fc_out(h[-1])
         return value  # batch_size * 1
+
+class DecoderCritic(nn.Module):
+    def __init__(self, num_nodes, net_state_dim, embedding_dim=64):
+        super().__init__()
+        self.decoder = Decoder(num_nodes, net_state_dim, embedding_dim=embedding_dim)
+
+    def forward(self, state):
+        logits, outputs, hidden_state = self.decoder(state)
+        value = torch.mean(logits, dim=-1, keepdim=True)
+        return value

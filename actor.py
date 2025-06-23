@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from module import StateNetwork
+from module import StateNetwork, Decoder
 import config
 
 # todo: mask delivery
@@ -69,3 +69,12 @@ class Seq2SeqActor(nn.Module):
         logits = self.fc_out(decoder_outputs)   # batch_size * max_sfc_length * num_nodes
         probs = F.softmax(logits, dim=-1)
         return logits, probs
+
+class DecoderActor(nn.Module):
+    def __init__(self, num_nodes, net_state_dim, embedding_dim=64):
+        super().__init__()
+        self.decoder = Decoder(num_nodes, net_state_dim, embedding_dim=embedding_dim)
+
+    def forward(self, state):
+        logits, outputs, hidden_state = self.decoder(state)
+        return logits, outputs, hidden_state
