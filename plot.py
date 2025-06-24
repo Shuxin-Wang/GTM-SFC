@@ -62,7 +62,7 @@ def show_evaluate_result(dir_path):
     # row number in csv files
     index_num = len(df_list[0]) if df_list else 0
 
-    bar_width = 0.2
+    bar_width = 0.15
     index = np.arange(index_num)    # bar location
     labels = df_list[0]['Max SFC Length']
     colors = ['#72b063', '#e29135', '#94c6cd', '#925eb0', '#cc7c71']
@@ -102,5 +102,5 @@ def show_evaluate_result(dir_path):
     plt.show()
 
 if __name__ == '__main__':
-    # show_train_result('save/result/train')
-    show_evaluate_result('save/result/evaluate')
+    show_train_result('save/result/train')
+    # show_evaluate_result('save/result/evaluate')

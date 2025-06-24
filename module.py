@@ -203,8 +203,9 @@ class Encoder(nn.Module):
         self.gru = nn.GRU(embedding_dim, embedding_dim)
 
     def forward(self, x):
-        x = x.permute(1, 0, 2)    # change batch dim
-        embeddings = F.relu(self.emb(x))
+        x = x.permute(1, 0, 2)    # seq_len * batch_size * vnf_state_dim
+        x = self.emb(x)
+        embeddings = F.relu(x)
         outputs, hidden_state = self.gru(embeddings)    # all timestep output: seq_len * batch_size * embedding_dim, last hidden_state: 1, batch_size, embedding_dim
         return outputs, hidden_state
 

@@ -82,7 +82,6 @@ class DecoderActor(nn.Module):
             nn.Linear(embedding_dim, 1),
             nn.Flatten()
         )   # net_state
-        self.emb = nn.Linear(embedding_dim, 1)   # placement
         self.att = Attention(embedding_dim) # placement
         self.gru = nn.GRU(embedding_dim, embedding_dim) # decoder
 
