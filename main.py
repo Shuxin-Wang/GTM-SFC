@@ -10,7 +10,7 @@ import plot
 import environment
 from sfc import SFCBatchGenerator
 import config
-from agent import NCO, ActorEnhancedNCO, CriticEnhancedNCO, DDPG
+from agent import NCO, ActorEnhancedNCO, CriticEnhancedNCO, DDPG, DRLSFCP
 
 def train(agent, env, sfc_generator):
     actor_loss_list = []
@@ -166,8 +166,9 @@ if __name__ == '__main__':
     #     ActorEnhancedNCO(env.num_nodes, node_state_dim, vnf_state_dim, state_output_dim,
     #                     config.MAX_SFC_LENGTH * env.num_nodes, device),
     #     CriticEnhancedNCO(env.num_nodes, node_state_dim, vnf_state_dim, device),
-        DDPG(env.num_nodes, node_state_dim, vnf_state_dim, state_output_dim,
-             config.MAX_SFC_LENGTH * env.num_nodes, device)
+    #     DDPG(env.num_nodes, node_state_dim, vnf_state_dim, state_output_dim,
+    #          config.MAX_SFC_LENGTH * env.num_nodes, device),
+        DRLSFCP(node_state_dim, vnf_state_dim)
     ]
 
     for agent in agent_list:

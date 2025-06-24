@@ -59,7 +59,6 @@ class NCO(nn.Module):
         return action
 
     def fill_replay_buffer(self, env, sfc_generator, episode):
-        env.clear()
         for e in range(episode):
             sfc_list = sfc_generator.get_sfc_batch()
             sfc_state_list = sfc_generator.get_sfc_states()
@@ -75,7 +74,7 @@ class NCO(nn.Module):
                 with torch.no_grad():
                     action = self.select_action([state])
 
-                placement = action[0][:len(sfc_list[i])].squeeze(0)   # masked placement
+                placement = action[0][:len(sfc_list[i])].squeeze(0)  # masked placement
                 sfc = source_dest_node_pair.int().tolist() + sfc_list[i]
                 next_node_states, reward = env.step(sfc, placement)
 
@@ -86,7 +85,8 @@ class NCO(nn.Module):
                     next_net_state = Data(x=next_node_states, edge_index=edge_index)
                     next_sfc_state = sfc_state_list[i + 1]
                     next_source_dest_node_pair = source_dest_node_pairs[i + 1]
-                    next_state = (next_net_state.to(self.device), next_sfc_state.to(self.device), next_source_dest_node_pair.to(self.device))
+                    next_state = (next_net_state.to(self.device), next_sfc_state.to(self.device),
+                                  next_source_dest_node_pair.to(self.device))
                     done = torch.tensor(0, dtype=torch.float32)
 
                 self.replay_buffer.push(state, action, reward, next_state, done)
@@ -572,12 +572,11 @@ class DDPG:
         env.clear()
 
 class DRLSFCP:
-    def __init__(self, num_nodes, net_state_dim, vnf_state_dim, embedding_dim=64):
+    def __init__(self, net_state_dim, vnf_state_dim, embedding_dim=64, device='cpu'):
         super().__init__()
-        self.encoder = Encoder(vnf_state_dim, embedding_dim=embedding_dim)
-        self.actor = DecoderActor(num_nodes, net_state_dim, embedding_dim)
+        self.actor = DecoderActor(net_state_dim, vnf_state_dim).to(device)
         self.actor_optimizer = optim.Adam(self.actor.parameters(), lr=1e-4)
-        self.critic = DecoderCritic(num_nodes, net_state_dim, embedding_dim)
+        self.critic = DecoderCritic(net_state_dim, vnf_state_dim).to(device)
         self.critic_optimizer = optim.Adam(self.critic.parameters(), lr=1e-3)
 
         self.replay_buffer = ReplayBuffer(capacity=10000)
@@ -591,13 +590,49 @@ class DRLSFCP:
 
         self._last_hidden_state = None
 
-    def select_action(self, state):
-        outputs, hidden_state = self.encoder(state)
-
-        logits, outputs, hidden_state = self.actor(state)
+    def select_action(self, state, noise_scale=0.1, exploration=True):
+        logits, hidden_state = self.actor(state)
+        if exploration:
+            noise = torch.randn_like(logits) * noise_scale
+            logits_noised = logits + noise
+            action = torch.argmax(logits_noised, dim=-1)
+        else:
+            action = torch.argmax(logits, dim=-1)
+        return action
 
     def fill_replay_buffer(self, env, sfc_generator, episode):
-        pass
+        for e in range(episode):
+            sfc_list = sfc_generator.get_sfc_batch()
+            sfc_state_list = sfc_generator.get_sfc_states()
+            source_dest_node_pairs = sfc_generator.get_source_dest_node_pairs()
+            for i in range(sfc_generator.batch_size):
+                aggregate_features = env.aggregate_features()  # get aggregated node features
+                edge_index = env.get_edge_index()
+                net_state = Data(x=aggregate_features, edge_index=edge_index)
+                sfc_state = sfc_state_list[i]
+                source_dest_node_pair = source_dest_node_pairs[i]
+                state = (net_state.to(self.device), sfc_state.to(self.device), source_dest_node_pair.to(self.device))
+
+                with torch.no_grad():
+                    action = self.select_action([state])
+                placement = action[0][:len(sfc_list[i])].squeeze(0)  # masked placement
+                sfc = source_dest_node_pair.int().tolist() + sfc_list[i]
+                next_node_states, reward = env.step(sfc, placement)
+
+                if i + 1 >= sfc_generator.batch_size:
+                    next_state = state
+                    done = torch.tensor(1, dtype=torch.float32)
+                else:
+                    next_net_state = Data(x=next_node_states, edge_index=edge_index)
+                    next_sfc_state = sfc_state_list[i + 1]
+                    next_source_dest_node_pair = source_dest_node_pairs[i + 1]
+                    next_state = (next_net_state.to(self.device), next_sfc_state.to(self.device),
+                                  next_source_dest_node_pair.to(self.device))
+                    done = torch.tensor(0, dtype=torch.float32)
+
+                self.replay_buffer.push(state, action, reward, next_state, done)
+                env.clear_sfc()
+            env.clear()
 
     def train(self, episode, batch_size=10, discount=0.99, tau=0.005):
 
@@ -612,13 +647,15 @@ class DRLSFCP:
             next_states = list(batch_next_states)
             dones = torch.tensor(batch_dones, dtype=torch.float32).unsqueeze(1).to(self.device)
 
-            current_Q = self.critic(states, actions)
+            current_Q = self.critic(states)
 
             with torch.no_grad():
-                _, next_probs = self.target_actor(next_states)
-                next_action = torch.argmax(next_probs, dim=-1)
-                target_Q = self.target_critic(next_states, next_action)
+                logits, _ = self.actor(next_states)
+                next_action = torch.argmax(logits, dim=-1)
+                target_Q = self.critic(next_states)
                 rewards = (rewards - rewards.mean()) / (rewards.std() + 1e-8)  # rewards normalization
+                rewards = rewards.unsqueeze(-1)
+                dones = dones.unsqueeze(-1)
                 target_Q = rewards + ((1 - dones) * discount * target_Q)
 
             critic_loss = F.mse_loss(current_Q, target_Q)
@@ -630,8 +667,7 @@ class DRLSFCP:
 
             self.critic_loss_list.append(critic_loss.item())
 
-            actor_actions = self.select_action(states)
-            actor_loss = -self.critic(states, actor_actions).mean()
+            actor_loss = -self.critic(states).mean()
 
             self.actor_optimizer.zero_grad()
             actor_loss.backward()
@@ -639,12 +675,6 @@ class DRLSFCP:
             self.actor_optimizer.step()
 
             self.actor_loss_list.append(actor_loss.item())
-
-            for param, target_param in zip(self.critic.parameters(), self.target_critic.parameters()):
-                target_param.data.copy_(tau * param.data + (1 - tau) * target_param.data)
-
-            for param, target_param in zip(self.actor.parameters(), self.target_actor.parameters()):
-                target_param.data.copy_(tau * param.data + (1 - tau) * target_param.data)
 
     def test(self, env, sfc_generator):
         self.episode_reward = 0
@@ -694,8 +724,8 @@ if __name__ == '__main__':
 
     # agent = DDPG(env.num_nodes, node_state_dim, vnf_state_dim, state_output_dim,
     #              config.MAX_SFC_LENGTH * env.num_nodes, device)
-    agent = NCO(vnf_state_dim, env.num_nodes, device)
-
+    # agent = NCO(vnf_state_dim, env.num_nodes, device)
+    agent = DRLSFCP(node_state_dim, vnf_state_dim, device=device)
 
     for iteration in range(config.ITERATION):
         agent.fill_replay_buffer(env, sfc_generator, 10)

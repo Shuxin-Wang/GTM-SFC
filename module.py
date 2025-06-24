@@ -3,7 +3,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import networkx as nx
-from torch.onnx.symbolic_opset11 import unsqueeze
 from torch_geometric.nn import GATConv, GCNConv
 from torch_geometric.data import Data, Batch
 from environment import Environment
@@ -188,16 +187,13 @@ class Attention(nn.Module):
         self.v = nn.Linear(hidden_dim, 1, bias=False)
 
     def forward(self, hidden, encoder_outputs, mask=None):
-        # hidden shape: (num_layers * num_directions, batch_size, hidden_dim)
-        # encoder_outputs shape: (batch_size, seq_len, hidden_dim * num_directions)
-        batch_size = encoder_outputs.size(0)
-        seq_len = encoder_outputs.size(1)
-        hidden = hidden.tranpose(0, 1).repeat(1, seq_len, 1)    # batch_size * seq_len * hidden_dim
+        # hidden shape: batch_size * seq_len * hidden_dim
+        encoder_outputs = encoder_outputs.permute(1, 0, 2)  # batch_size * seq_len * hidden_dim
         energy = torch.tanh(self.attn(torch.cat([hidden, encoder_outputs], dim=2))) # batch_size * seq_len * hidden_dim
         attn_weights = F.softmax(self.v(energy).squeeze(2), dim=1)  # batch_size * seq_len
         if mask is not None:
             attn_weights = attn_weights.masked_fill(mask == 0, -1e10)
-        context = torch.bmm(attn_weights.unsqueeze(1), encoder_outputs) # batch_size, 1, hidden_dim * num_directions
+        context = torch.bmm(attn_weights.unsqueeze(1), encoder_outputs) # batch_size, 1, hidden_dim
         return context, attn_weights
 
 class Encoder(nn.Module):
@@ -207,49 +203,10 @@ class Encoder(nn.Module):
         self.gru = nn.GRU(embedding_dim, embedding_dim)
 
     def forward(self, x):
-        # x = x.permute(1, 0, 2)    # change batch dim
+        x = x.permute(1, 0, 2)    # change batch dim
         embeddings = F.relu(self.emb(x))
-        outputs, hidden_state = self.gru(embeddings)
+        outputs, hidden_state = self.gru(embeddings)    # all timestep output: seq_len * batch_size * embedding_dim, last hidden_state: 1, batch_size, embedding_dim
         return outputs, hidden_state
-
-class Decoder(nn.Module):
-    def __init__(self, num_nodes, net_state_dim, embedding_dim=64):
-        super().__init__()
-        self.emb = nn.Embedding(num_nodes + 1, embedding_dim)   # node id -> embedding tensor
-        self.att = Attention(embedding_dim)
-        self.gcn = GCNConvNet(net_state_dim, embedding_dim, embedding_dim=embedding_dim, dropout_prob=0.)
-        self.mlp = nn.Sequential(
-            nn.Linear(embedding_dim, 1),
-            nn.Flatten()
-        )
-        self.gru = nn.GRU(embedding_dim, embedding_dim)
-        self._last_hidden_state = None
-
-    def forward(self, state, hidden_state, node_id, encoder_outputs):
-        net_state, sfc_state, source_dest_node_pair = zip(*state)
-        net_states_list = list(net_state)
-        sfc_states_list = list(sfc_state)
-
-        batch_size = len(net_states_list)
-        num_nodes = len(net_states_list[0].x)
-
-        batch_net_state = Batch.from_data_list(net_states_list)  # net state = DataBatch(x, edge_index, batch, ptr)
-        batch_sfc_state = torch.stack(sfc_states_list, dim=0)
-        batch_source_dest_node_pair = torch.stack(source_dest_node_pair, dim=0).unsqueeze(2)   # batch_size * 2 * 1
-
-        node_embeddings = self.gcn(batch_net_state)
-        node_embeddings = node_embeddings + hidden_state
-        logits = self.mlp(node_embeddings)
-
-        hidden_state = hidden_state.permute(1, 0, 2)    # change batch dim
-        node_emb = self.emb(node_id).unsqueeze(0)
-
-        context, attention = self.att(hidden_state, encoder_outputs)
-
-        gru_input = (context + node_emb).unsqueeze(0)
-        outputs, hidden_state = self.gru(gru_input, hidden_state)
-
-        return logits, outputs, hidden_state
 
 if __name__ == '__main__':
 
