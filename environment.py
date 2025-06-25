@@ -228,8 +228,8 @@ class Environment:
         self.state_dim = (self.num_nodes + config.MAX_SFC_LENGTH) * self.vnf_state_dim
 
     def step(self, sfc, placement):
-        source_dest_node_pair = torch.tensor(sfc[:2], dtype=torch.int32)
-        sfc = sfc[2:]
+        source_dest_node_pair = sfc[:2].clone().detach().to(dtype=torch.int32)  # sfc[0:1] is the source dest node pair
+        sfc = sfc[2:]   # sfc[2:] is the sfc
 
         self.clear_sfc()
 
@@ -301,8 +301,10 @@ class Environment:
 if __name__ == '__main__':
 
     random.seed(27)
-    g = nx.read_graphml('Cogentco.graphml')
+    g = nx.read_graphml('graph/Cogentco.graphml')
     env = Environment(g)
+    print('number of nodes:', g.number_of_nodes())
+    print('number of links:', g.number_of_edges())
 
     # env test
     test_placement = torch.tensor([0, 0, 2, 4], dtype=torch.int32)

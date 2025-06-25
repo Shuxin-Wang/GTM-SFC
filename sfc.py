@@ -85,7 +85,7 @@ class SFCBatchGenerator:
 if __name__ == '__main__':
 
     random.seed(27)
-    G = nx.read_graphml('Cogentco.graphml')
+    G = nx.read_graphml('graph/Cogentco.graphml')
     env = Environment(G)
     sfc_generator = SFCBatchGenerator(config.BATCH_SIZE, config.MIN_SFC_LENGTH, config.MAX_SFC_LENGTH, config.NUM_VNF_TYPES, env.num_nodes)
 

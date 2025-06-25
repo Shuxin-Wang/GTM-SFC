@@ -8,8 +8,8 @@ LEARNING_RATE = 0.001
 
 NUM_VNF_TYPES = 8   # number of VNF types
 
-MIN_SFC_LENGTH = 3
-MAX_SFC_LENGTH = 16 # max sfc length agent can finish placement, different from SFCBatchGenerator max_sfc_length
+MIN_SFC_LENGTH = 4
+MAX_SFC_LENGTH = 24 # max sfc length agent can finish placement, different from SFCBatchGenerator max_sfc_length
 
 # convert string to boolean value
 def str2bool(s):

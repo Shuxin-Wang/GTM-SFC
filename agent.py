@@ -708,7 +708,7 @@ if __name__ == '__main__':
     else:
         device = torch.device('cpu')
 
-    G = nx.read_graphml('Cogentco.graphml')
+    G = nx.read_graphml('graph/Cogentco.graphml')
     env = environment.Environment(G)
     sfc_generator = SFCBatchGenerator(20, config.MIN_SFC_LENGTH, config.MAX_SFC_LENGTH,
                                           config.NUM_VNF_TYPES, env.num_nodes)

@@ -143,7 +143,7 @@ if __name__ == '__main__':
         device = torch.device('cpu')
 
     # initialization
-    G = nx.read_graphml('Cogentco.graphml')
+    G = nx.read_graphml('graph/Cogentco.graphml')
     env = environment.Environment(G)
     sfc_generator = SFCBatchGenerator(config.BATCH_SIZE, config.MIN_SFC_LENGTH, config.MAX_SFC_LENGTH,
                                           config.NUM_VNF_TYPES, env.num_nodes)
@@ -161,24 +161,24 @@ if __name__ == '__main__':
     # output: batch_size * max_sfc_length * num_nodes
 
     # train
-    agent_list = [
-        NCO(vnf_state_dim, env.num_nodes, device),
-        ActorEnhancedNCO(env.num_nodes, node_state_dim, vnf_state_dim, state_output_dim,
-                        config.MAX_SFC_LENGTH * env.num_nodes, device),
-        CriticEnhancedNCO(env.num_nodes, node_state_dim, vnf_state_dim, device),
-        DDPG(env.num_nodes, node_state_dim, vnf_state_dim, state_output_dim,
-             config.MAX_SFC_LENGTH * env.num_nodes, device),
-        DRLSFCP(node_state_dim, vnf_state_dim, device=device)
-    ]
+    # agent_list = [
+    #     NCO(vnf_state_dim, env.num_nodes, device),
+    #     ActorEnhancedNCO(env.num_nodes, node_state_dim, vnf_state_dim, state_output_dim,
+    #                     config.MAX_SFC_LENGTH * env.num_nodes, device),
+    #     CriticEnhancedNCO(env.num_nodes, node_state_dim, vnf_state_dim, device),
+    #     DDPG(env.num_nodes, node_state_dim, vnf_state_dim, state_output_dim,
+    #          config.MAX_SFC_LENGTH * env.num_nodes, device),
+    #     DRLSFCP(node_state_dim, vnf_state_dim, device=device)
+    # ]
 
-    for agent in agent_list:
-        train(agent, env, sfc_generator)
+    # for agent in agent_list:
+    #     train(agent, env, sfc_generator)
 
     # evaluate
     all_models = os.listdir('save/model')
     agent_files = [file for file in all_models if file.endswith('.pth')]
 
-    sfc_length_list = [8, 10, 12, 14,16]   # test agent placement under different max sfc length
+    sfc_length_list = [8, 10, 12, 16, 20, 24]   # test agent placement under different max sfc length
     for agent_file in agent_files:
         agent_file_path = 'save/model/' + agent_file
         agent = torch.load(agent_file_path, weights_only=False)

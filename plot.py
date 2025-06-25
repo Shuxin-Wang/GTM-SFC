@@ -4,9 +4,7 @@ import pandas as pd
 import numpy as np
 
 def show_train_result(dir_path):
-    all_files = os.listdir(dir_path)
-    csv_files = [file for file in all_files if file.endswith('.csv')]
-    agent_name_list = [f.replace('.csv', '') for f in csv_files]
+    agent_name_list = ['NCO', 'DRLSFCP', 'ActorEnhancedNCO', 'DDPG']
     agent_num = len(agent_name_list)
 
     df_list = []
@@ -14,58 +12,57 @@ def show_train_result(dir_path):
     actor_loss_list = []
     critic_loss_list = []
 
-    for csv_file in csv_files:
-        csv_file_path = dir_path + '/' + csv_file
+    for agent_name in agent_name_list:
+        csv_file_path = dir_path + '/' + agent_name + '.csv'
         df = pd.read_csv(csv_file_path)
         df_list.append(df)
         reward_list.append(df['Reward'])
         actor_loss_list.append(df['Actor Loss'])
         critic_loss_list.append(df['Critic Loss'])
 
-    # plt.figure()
-    # plt.title('Reward')
-    # for i in range(agent_num):
-    #     plt.plot(reward_list[i], label=agent_name_list[i] + ' Reward')
-    # # plt.ylim((13,18))
-    # plt.legend()
-
     figure_path = 'save/result/plot/'
+    colors = ['#925eb0', '#e29135', '#cc7c71', '#72b063', '#cc7c71']
+
+    plt.figure()
+    plt.title('Reward')
+    for i in range(agent_num):
+        plt.plot(reward_list[i], label=agent_name_list[i] + ' Reward', color=colors[i])
+    plt.legend()
+    plt.savefig(figure_path + 'Actor Loss.png', dpi=300)
 
     plt.figure()
     plt.title('Actor Loss')
     for i in range(agent_num):
-        plt.plot(actor_loss_list[i], label=agent_name_list[i] + ' Actor Loss')
+        plt.plot(actor_loss_list[i], label=agent_name_list[i] + ' Actor Loss', color=colors[i])
     plt.legend()
     plt.savefig(figure_path + 'Actor Loss.png', dpi=300)
 
     plt.figure()
     plt.title('Critic Loss')
     for i in range(agent_num):
-        plt.plot(critic_loss_list[i], label=agent_name_list[i] + ' Critic Loss')
+        plt.plot(critic_loss_list[i], label=agent_name_list[i] + ' Critic Loss', color=colors[i])
     plt.legend()
     plt.savefig(figure_path + 'Critic Loss.png', dpi=300)
 
     plt.show()
 
 def show_evaluate_result(dir_path):
-    all_files = os.listdir(dir_path)
-    csv_files = [file for file in all_files if file.endswith('.csv')]
-    agent_name_list = [f.replace('.csv', '') for f in csv_files]
+    agent_name_list = ['NCO', 'DRLSFCP', 'ActorEnhancedNCO', 'DDPG']
 
     # load csv files
     df_list = []
-    for csv_file in csv_files:
-        csv_file_path = dir_path + '/' + csv_file
+    for agent_name in agent_name_list:
+        csv_file_path = dir_path + '/' + agent_name + '.csv'
         df = pd.read_csv(csv_file_path)
         df_list.append(df)
 
     # row number in csv files
     index_num = len(df_list[0]) if df_list else 0
 
-    bar_width = 0.15
+    bar_width = 0.2
     index = np.arange(index_num)    # bar location
     labels = df_list[0]['Max SFC Length']
-    colors = ['#72b063', '#e29135', '#94c6cd', '#925eb0', '#cc7c71']
+    colors = ['#925eb0', '#e29135', '#94c6cd', '#72b063', '#cc7c71']
 
     figure_path = 'save/result/plot/'
 
@@ -102,5 +99,5 @@ def show_evaluate_result(dir_path):
     plt.show()
 
 if __name__ == '__main__':
-    # show_train_result('save/result/train')
-    show_evaluate_result('save/result/evaluate')
+    show_train_result('save/result/train')
+    # show_evaluate_result('save/result/evaluate')
