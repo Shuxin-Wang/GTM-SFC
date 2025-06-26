@@ -11,7 +11,6 @@ import environment
 from sfc import SFCBatchGenerator
 from actor import StateNetworkActor, Seq2SeqActor, DecoderActor
 from critic import StateNetworkCritic, LSTMCritic, DecoderCritic
-from module import Encoder
 
 class ReplayBuffer:
     def __init__(self, capacity):
@@ -48,8 +47,7 @@ class NCO(nn.Module):
 
         self.episode_reward = 0
 
-    def select_action(self, state, noise_scale=0.1, exploration=True):
-        _, probs = self.actor(state)
+    def select_action(self, probs, noise_scale=0.1, exploration=True):
         if exploration:
             noise = torch.randn_like(probs) * noise_scale
             probs_noised = probs + noise
@@ -57,6 +55,12 @@ class NCO(nn.Module):
         else:
             action = torch.argmax(probs, dim=-1)
         return action
+
+    def get_sfc_placement(self, state, exploration=False):
+        _, probs = self.actor([state])
+        action = self.select_action(probs, exploration=exploration)
+        placement = action
+        return placement
 
     def fill_replay_buffer(self, env, sfc_generator, episode):
         for e in range(episode):
@@ -72,10 +76,11 @@ class NCO(nn.Module):
                 state = (net_state.to(self.device), sfc_state.to(self.device), source_dest_node_pair.to(self.device))
 
                 with torch.no_grad():
-                    action = self.select_action([state])
+                    _, probs = self.actor([state])
 
-                placement = action[0][:len(sfc_list[i])].squeeze(0)  # masked placement
-                sfc = source_dest_node_pair.int().tolist() + sfc_list[i]
+                action = self.select_action(probs)
+                placement = action[0][:len(sfc_list[i])].squeeze(0).to(dtype=torch.int32).tolist()  # masked placement
+                sfc = source_dest_node_pair.to(dtype=torch.int32).tolist() + sfc_list[i]
                 next_node_states, reward = env.step(sfc, placement)
 
                 if i + 1 >= sfc_generator.batch_size:
@@ -102,7 +107,7 @@ class NCO(nn.Module):
             batch_states, batch_actions, batch_rewards, batch_next_states, batch_dones = zip(
                 *self.replay_buffer.sample(batch_size))
             states = list(batch_states)  # state = [(net_state, sfc_state), (net_state, sfc_state)...]
-            actions = torch.stack(batch_actions, dim=0).to(
+            actions = torch.stack(batch_actions, dim=0).squeeze(1).to(
                 self.device)  # action = torch.tensor((action), (action)...)) batch_size * max_sfc_length
             rewards = torch.tensor(batch_rewards, dtype=torch.float32).unsqueeze(1).to(self.device)
             next_states = list(batch_next_states)
@@ -153,10 +158,11 @@ class NCO(nn.Module):
             state = (net_state.to(self.device), sfc_state.to(self.device), source_dest_node_pair.to(self.device))
 
             with torch.no_grad():
-                action = self.select_action([state])  # action_dim: max_sfc_length * num_nodes
+                _, probs = self.actor([state])
 
-            sfc = source_dest_node_pair.tolist() + sfc_list[i]
-            placement = action[0][:len(sfc_list[i])].squeeze(0)  # masked placement
+            action = self.select_action(probs)  # action_dim: batch_size * max_sfc_length * 1
+            placement = action[0][:len(sfc_list[i])].squeeze(0).to(dtype=torch.int32).tolist()  # masked placement
+            sfc = source_dest_node_pair.to(dtype=torch.int32).tolist() + sfc_list[i]
             _, reward = env.step(sfc, placement)
 
             self.episode_reward += reward
@@ -182,8 +188,7 @@ class ActorEnhancedNCO(nn.Module):
 
         self.episode_reward = 0
 
-    def select_action(self, state, noise_scale=0.1, exploration=True):
-        _, probs = self.actor(state)
+    def select_action(self, probs, noise_scale=0.1, exploration=True):
         if exploration:
             noise = torch.randn_like(probs) * noise_scale
             probs_noised = probs + noise
@@ -191,6 +196,12 @@ class ActorEnhancedNCO(nn.Module):
         else:
             action = torch.argmax(probs, dim=-1)
         return action
+
+    def get_sfc_placement(self, state, exploration=False):
+        _, probs = self.actor([state])
+        action = self.select_action(probs, exploration=exploration)
+        placement = action
+        return placement
 
     def fill_replay_buffer(self, env, sfc_generator, episode):
         env.clear()
@@ -207,10 +218,11 @@ class ActorEnhancedNCO(nn.Module):
                 state = (net_state.to(self.device), sfc_state.to(self.device), source_dest_node_pair.to(self.device))
 
                 with torch.no_grad():
-                    action = self.select_action([state])
+                    _, probs = self.actor([state])
 
-                placement = action[0][:len(sfc_list[i])].squeeze(0)   # masked placement
-                sfc = source_dest_node_pair.tolist() + sfc_list[i]
+                action = self.select_action(probs)
+                placement = action[0][:len(sfc_list[i])].squeeze(0).to(dtype=torch.int32).tolist() # masked placement
+                sfc = source_dest_node_pair.to(dtype=torch.int32).tolist() + sfc_list[i]
                 next_node_states, reward = env.step(sfc, placement)
 
                 if i + 1 >= sfc_generator.batch_size:
@@ -237,7 +249,7 @@ class ActorEnhancedNCO(nn.Module):
             batch_states, batch_actions, batch_rewards, batch_next_states, batch_dones = zip(
                 *self.replay_buffer.sample(batch_size))
             states = list(batch_states)  # state = [(net_state, sfc_state), (net_state, sfc_state)...]
-            actions = torch.stack(batch_actions, dim=0).to(
+            actions = torch.stack(batch_actions, dim=0).squeeze(1).to(
                 self.device)  # action = torch.tensor((action), (action)...)) batch_size * max_sfc_length
             rewards = torch.tensor(batch_rewards, dtype=torch.float32).unsqueeze(1).to(self.device)
             next_states = list(batch_next_states)
@@ -288,10 +300,11 @@ class ActorEnhancedNCO(nn.Module):
             state = (net_state.to(self.device), sfc_state.to(self.device), source_dest_node_pair.to(self.device))
 
             with torch.no_grad():
-                action = self.select_action([state])  # action_dim: max_sfc_length * num_nodes
+                _, probs = self.actor([state])
 
-            sfc = source_dest_node_pair.tolist() + sfc_list[i]
-            placement = action[0][:len(sfc_list[i])].squeeze(0)  # masked placement
+            action = self.select_action(probs)  # action_dim: batch_size * max_sfc_length * 1
+            placement = action[0][:len(sfc_list[i])].squeeze(0).to(dtype=torch.int32).tolist()  # masked placement
+            sfc = source_dest_node_pair.to(dtype=torch.int32).tolist() + sfc_list[i]
             _, reward = env.step(sfc, placement)
 
             self.episode_reward += reward
@@ -303,7 +316,7 @@ class CriticEnhancedNCO(nn.Module):
         super().__init__()
 
         self.actor = Seq2SeqActor(vnf_state_dim, hidden_dim=8, num_layers=2, num_nodes=num_nodes).to(device)
-        self.critic = StateNetworkCritic(node_state_dim, vnf_state_dim).to(device)
+        self.critic = StateNetworkCritic(node_state_dim, vnf_state_dim, num_nodes).to(device)
 
         self.actor_optimizer = optim.Adam(self.actor.parameters(), lr=1e-4)
         self.critic_optimizer = optim.Adam(self.critic.parameters(), lr=1e-3)
@@ -317,15 +330,19 @@ class CriticEnhancedNCO(nn.Module):
 
         self.episode_reward = 0
 
-    def select_action(self, state, noise_scale=0.1, exploration=True):
-        _, probs = self.actor(state)
+    def select_action(self, probs, noise_scale=0.1, exploration=True):
         if exploration:
             noise = torch.randn_like(probs) * noise_scale
-            probs_noised = probs + noise
-            action = torch.argmax(probs_noised, dim=-1)
+            action = probs + noise
         else:
-            action = torch.argmax(probs, dim=-1)
+            action = probs
         return action
+
+    def get_sfc_placement(self, state, exploration=False):
+        _, probs = self.actor([state])
+        action = self.select_action(probs, exploration=exploration)
+        placement = torch.argmax(action, dim=-1)
+        return placement
 
     def fill_replay_buffer(self, env, sfc_generator, episode):
         env.clear()
@@ -342,10 +359,12 @@ class CriticEnhancedNCO(nn.Module):
                 state = (net_state.to(self.device), sfc_state.to(self.device), source_dest_node_pair.to(self.device))
 
                 with torch.no_grad():
-                    action = self.select_action([state])
+                    _, probs = self.actor([state])
 
-                placement = action[0][:len(sfc_list[i])].squeeze(0)   # masked placement
-                sfc = source_dest_node_pair.tolist() + sfc_list[i]
+                action = self.select_action(probs)
+                placement = torch.argmax(action, dim=-1)
+                placement = placement[0][:len(sfc_list[i])].squeeze(0).to(dtype=torch.int32).tolist()  # masked placement
+                sfc = source_dest_node_pair.to(dtype=torch.int32).tolist() + sfc_list[i]
                 next_node_states, reward = env.step(sfc, placement)
 
                 if i + 1 >= sfc_generator.batch_size:
@@ -372,7 +391,7 @@ class CriticEnhancedNCO(nn.Module):
             batch_states, batch_actions, batch_rewards, batch_next_states, batch_dones = zip(
                 *self.replay_buffer.sample(batch_size))
             states = list(batch_states)  # state = [(net_state, sfc_state), (net_state, sfc_state)...]
-            actions = torch.stack(batch_actions, dim=0).to(
+            actions = torch.stack(batch_actions, dim=0).squeeze(1).to(
                 self.device)  # action = torch.tensor((action), (action)...)) batch_size * max_sfc_length
             rewards = torch.tensor(batch_rewards, dtype=torch.float32).unsqueeze(1).to(self.device)
             next_states = list(batch_next_states)
@@ -423,10 +442,12 @@ class CriticEnhancedNCO(nn.Module):
             state = (net_state.to(self.device), sfc_state.to(self.device), source_dest_node_pair.to(self.device))
 
             with torch.no_grad():
-                action = self.select_action([state])  # action_dim: max_sfc_length * num_nodes
+                _, probs = self.actor([state])
 
-            sfc = source_dest_node_pair.tolist() + sfc_list[i]
-            placement = action[0][:len(sfc_list[i])].squeeze(0)  # masked placement
+            action = self.select_action(probs)  # action_dim: batch_size * max_sfc_length * 1
+            placement = torch.argmax(action, dim=-1)
+            placement = placement[0][:len(sfc_list[i])].squeeze(0).to(dtype=torch.int32).tolist()  # masked placement
+            sfc = source_dest_node_pair.to(dtype=torch.int32).tolist() + sfc_list[i]
             _, reward = env.step(sfc, placement)
 
             self.episode_reward += reward
@@ -440,8 +461,8 @@ class DDPG:
         self.target_actor.load_state_dict(self.actor.state_dict())
         self.actor_optimizer = optim.Adam(self.actor.parameters(), lr=1e-4)
 
-        self.critic = StateNetworkCritic(node_state_dim, vnf_state_dim).to(device)
-        self.target_critic = StateNetworkCritic(node_state_dim, vnf_state_dim).to(device)
+        self.critic = StateNetworkCritic(node_state_dim, vnf_state_dim, num_nodes).to(device)
+        self.target_critic = StateNetworkCritic(node_state_dim, vnf_state_dim, num_nodes).to(device)
         self.target_critic.load_state_dict(self.critic.state_dict())
         self.critic_optimizer = optim.Adam(self.critic.parameters(), lr=1e-3)
 
@@ -454,15 +475,19 @@ class DDPG:
 
         self.episode_reward = 0
 
-    def select_action(self, state, noise_scale=0.1, exploration=True):
-        _, probs = self.actor(state)
+    def select_action(self, probs, noise_scale=0.1, exploration=True):
         if exploration:
             noise = torch.randn_like(probs) * noise_scale
-            probs_noised = probs + noise
-            action = torch.argmax(probs_noised, dim=-1)
+            action = probs + noise
         else:
-            action = torch.argmax(probs, dim=-1)
+            action = probs
         return action
+
+    def get_sfc_placement(self, state, exploration=False):
+        _, probs = self.actor([state])
+        action = self.select_action(probs, exploration=exploration)
+        placement = torch.argmax(action, dim=-1)
+        return placement
 
     def fill_replay_buffer(self, env, sfc_generator, episode):
         env.clear()
@@ -479,10 +504,13 @@ class DDPG:
                 state = (net_state.to(self.device), sfc_state.to(self.device), source_dest_node_pair.to(self.device))
 
                 with torch.no_grad():
-                    action = self.select_action([state])    # action_dim: max_sfc_length * num_nodes
+                    _, probs = self.actor([state])
 
-                sfc = source_dest_node_pair.tolist() + sfc_list[i]
-                placement = action[0][:len(sfc_list[i])].squeeze(0)  # masked placement
+                action = self.select_action(probs)    # action_dim: batch_size * max_sfc_length * num_nodes
+                placement = torch.argmax(action, dim=-1)    # batch_size * max_sfc_length
+                placement = placement[0][:len(sfc_list[i])].squeeze(0).to(dtype=torch.int32).tolist()  # masked placement
+                print('buffer', placement)
+                sfc = source_dest_node_pair.to(dtype=torch.int32).tolist() + sfc_list[i]
                 next_node_states, reward = env.step(sfc, placement)
 
                 if i + 1 >= sfc_generator.batch_size:
@@ -507,7 +535,7 @@ class DDPG:
         for e in range(episode):
             batch_states, batch_actions, batch_rewards, batch_next_states, batch_dones = zip(*self.replay_buffer.sample(batch_size))
             states = list(batch_states)  # states = [(net_state, sfc_state, source_dest_node_pair), (net_state, sfc_state, source_dest_node_pair)...]
-            actions = torch.stack(batch_actions, dim=0).to(self.device)  # actions = torch.tensor((action), (action)...)) batch_size * max_sfc_length
+            actions = torch.stack(batch_actions, dim=0).squeeze(1).to(self.device)  # actions = torch.tensor((action), (action)...)) batch_size * max_sfc_length * num_nodes
             rewards = torch.tensor(batch_rewards, dtype=torch.float32).unsqueeze(1).to(self.device)
             next_states = list(batch_next_states)
             dones = torch.tensor(batch_dones, dtype=torch.float32).unsqueeze(1).to(self.device)
@@ -515,8 +543,7 @@ class DDPG:
             current_Q = self.critic(states, actions)
 
             with torch.no_grad():
-                _, next_probs = self.target_actor(next_states)
-                next_action = torch.argmax(next_probs, dim=-1)
+                _, next_action = self.target_actor(next_states)
                 target_Q = self.target_critic(next_states, next_action)
                 rewards = (rewards - rewards.mean()) / (rewards.std() + 1e-8)  # rewards normalization
                 target_Q = rewards + ((1 - dones) * discount * target_Q)
@@ -530,7 +557,7 @@ class DDPG:
 
             self.critic_loss_list.append(critic_loss.item())
 
-            actor_actions = self.select_action(states)
+            _, actor_actions = self.actor(states)
             actor_loss = -self.critic(states, actor_actions).mean()
 
             self.actor_optimizer.zero_grad()
@@ -561,10 +588,12 @@ class DDPG:
             state = (net_state.to(self.device), sfc_state.to(self.device), source_dest_node_pair.to(self.device))
 
             with torch.no_grad():
-                action = self.select_action([state])  # action_dim: max_sfc_length * num_nodes
+                _, probs = self.actor([state])
 
-            sfc = source_dest_node_pair.tolist() + sfc_list[i]
-            placement = action[0][:len(sfc_list[i])].squeeze(0)  # masked placement
+            action = self.select_action(probs)  # action_dim: batch_size * max_sfc_length * num_nodes
+            placement = torch.argmax(action, dim=-1)    # batch_size * max_sfc_length
+            placement = placement[0][:len(sfc_list[i])].squeeze(0).to(dtype=torch.int32).tolist()   # masked placement
+            sfc = source_dest_node_pair.to(dtype=torch.int32).tolist() + sfc_list[i]
             _, reward = env.step(sfc, placement)
 
             self.episode_reward += reward
@@ -590,15 +619,20 @@ class DRLSFCP:
 
         self._last_hidden_state = None
 
-    def select_action(self, state, noise_scale=0.1, exploration=True):
-        logits, hidden_state = self.actor(state)
+    def select_action(self, logits, noise_scale=0.1, exploration=True):
         if exploration:
             noise = torch.randn_like(logits) * noise_scale
-            logits_noised = logits + noise
-            action = torch.argmax(logits_noised, dim=-1)
+            probs_noised = logits + noise
+            action = torch.argmax(probs_noised, dim=-1)
         else:
             action = torch.argmax(logits, dim=-1)
         return action
+
+    def get_sfc_placement(self, state, exploration=False):
+        logits, _ = self.actor([state])
+        action = self.select_action(logits, exploration=exploration)
+        placement = action
+        return placement
 
     def fill_replay_buffer(self, env, sfc_generator, episode):
         for e in range(episode):
@@ -614,9 +648,11 @@ class DRLSFCP:
                 state = (net_state.to(self.device), sfc_state.to(self.device), source_dest_node_pair.to(self.device))
 
                 with torch.no_grad():
-                    action = self.select_action([state])
-                placement = action[0][:len(sfc_list[i])].squeeze(0)  # masked placement
-                sfc = source_dest_node_pair.int().tolist() + sfc_list[i]
+                    logits, _ = self.actor([state])
+
+                action = self.select_action(logits)
+                placement = action[0][:len(sfc_list[i])].squeeze(0).to(dtype=torch.int32).tolist()  # masked placement
+                sfc = source_dest_node_pair.to(dtype=torch.int32).tolist() + sfc_list[i]
                 next_node_states, reward = env.step(sfc, placement)
 
                 if i + 1 >= sfc_generator.batch_size:
@@ -642,23 +678,21 @@ class DRLSFCP:
         for e in range(episode):
             batch_states, batch_actions, batch_rewards, batch_next_states, batch_dones = zip(*self.replay_buffer.sample(batch_size))
             states = list(batch_states)  # states = [(net_state, sfc_state, source_dest_node_pair), (net_state, sfc_state, source_dest_node_pair)...]
-            actions = torch.stack(batch_actions, dim=0).to(self.device)  # actions = torch.tensor((action), (action)...)) batch_size * max_sfc_length
+            actions = torch.stack(batch_actions, dim=0).squeeze(1).to(self.device)  # actions = torch.tensor((action), (action)...)) batch_size * max_sfc_length
             rewards = torch.tensor(batch_rewards, dtype=torch.float32).unsqueeze(1).to(self.device)
             next_states = list(batch_next_states)
             dones = torch.tensor(batch_dones, dtype=torch.float32).unsqueeze(1).to(self.device)
 
-            current_Q = self.critic(states)
+            current_V = self.critic(states) # batch_size * max_sfc_length * 1
 
             with torch.no_grad():
-                logits, _ = self.actor(next_states)
-                next_action = torch.argmax(logits, dim=-1)
-                target_Q = self.critic(next_states)
+                target_V = self.critic(next_states)
                 rewards = (rewards - rewards.mean()) / (rewards.std() + 1e-8)  # rewards normalization
                 rewards = rewards.unsqueeze(-1)
                 dones = dones.unsqueeze(-1)
-                target_Q = rewards + ((1 - dones) * discount * target_Q)
+                target_V = rewards + ((1 - dones) * discount * target_V)
 
-            critic_loss = F.mse_loss(current_Q, target_Q)
+            critic_loss = F.mse_loss(current_V, target_V)
 
             self.critic_optimizer.zero_grad()
             critic_loss.backward()
@@ -667,7 +701,11 @@ class DRLSFCP:
 
             self.critic_loss_list.append(critic_loss.item())
 
-            actor_loss = -self.critic(states).mean()
+            logits, _ = self.actor(states)
+            advantage = (target_V - current_V).detach()
+            log_probs = F.log_softmax(logits, dim=-1)   # batch_size * max_sfc_length * num_nodes
+            log_pi_action = log_probs.gather(dim=-1, index=actions.unsqueeze(-1)).squeeze(-1)   # get the log probs for the actions: batch_size * max_sfc_length
+            actor_loss = - (log_pi_action * advantage.squeeze(-1)).mean()
 
             self.actor_optimizer.zero_grad()
             actor_loss.backward()
@@ -691,10 +729,11 @@ class DRLSFCP:
             state = (net_state.to(self.device), sfc_state.to(self.device), source_dest_node_pair.to(self.device))
 
             with torch.no_grad():
-                action = self.select_action([state])  # action_dim: max_sfc_length * num_nodes
+                logits, _ = self.actor([state])
 
-            sfc = source_dest_node_pair.tolist() + sfc_list[i]
-            placement = action[0][:len(sfc_list[i])].squeeze(0)  # masked placement
+            action = self.select_action(logits)  # action_dim: batch_size * max_sfc_length * 1
+            placement = action[0][:len(sfc_list[i])].squeeze(0).to(dtype=torch.int32).tolist()  # masked placement
+            sfc = source_dest_node_pair.to(dtype=torch.int32).tolist() + sfc_list[i]
             _, reward = env.step(sfc, placement)
 
             self.episode_reward += reward

@@ -102,9 +102,9 @@ def evaluate(agent, env, sfc_generator, sfc_length_list, episodes=10):
                 source_dest_node_pair = source_dest_node_pairs[i]
                 state = (net_state.to(agent.device), sfc_state.to(agent.device), source_dest_node_pair.to(device))
                 with torch.no_grad():
-                    action = agent.select_action([state], exploration=False)
-                    placement = action[0][:len(sfc_list[i])].squeeze(0)
-                    sfc = source_dest_node_pair.tolist() + sfc_list[i]
+                    placement = agent.get_sfc_placement(state, exploration=False)
+                    placement = placement[0][:len(sfc_list[i])].squeeze(0).to(dtype=torch.int32).tolist()  # masked placement
+                    sfc = source_dest_node_pair.to(dtype=torch.int32).tolist() + sfc_list[i]
                     env.step(sfc, placement)
                     placement_reward_list.append(env.placement_reward)
                     power_consumption_list.append(env.power_consumption)
@@ -157,30 +157,33 @@ if __name__ == '__main__':
     state_input_dim = node_state_dim * env.num_nodes + config.MAX_SFC_LENGTH * vnf_state_dim
     state_output_dim = (env.num_nodes + config.MAX_SFC_LENGTH + 2) * vnf_state_dim
 
-    # input: batch_size * (num_nodes + max_sfc_length) * vnf_state_dim
-    # output: batch_size * max_sfc_length * num_nodes
-
     # train
-    # agent_list = [
-    #     NCO(vnf_state_dim, env.num_nodes, device),
-    #     ActorEnhancedNCO(env.num_nodes, node_state_dim, vnf_state_dim, state_output_dim,
-    #                     config.MAX_SFC_LENGTH * env.num_nodes, device),
-    #     CriticEnhancedNCO(env.num_nodes, node_state_dim, vnf_state_dim, device),
-    #     DDPG(env.num_nodes, node_state_dim, vnf_state_dim, state_output_dim,
-    #          config.MAX_SFC_LENGTH * env.num_nodes, device),
-    #     DRLSFCP(node_state_dim, vnf_state_dim, device=device)
-    # ]
+    agent_list = [
+        # NCO(vnf_state_dim, env.num_nodes, device),
+        # ActorEnhancedNCO(env.num_nodes, node_state_dim, vnf_state_dim, state_output_dim,
+        #                 config.MAX_SFC_LENGTH * env.num_nodes, device),
+        CriticEnhancedNCO(env.num_nodes, node_state_dim, vnf_state_dim, device),
+        DDPG(env.num_nodes, node_state_dim, vnf_state_dim, state_output_dim,
+             config.MAX_SFC_LENGTH * env.num_nodes, device),
+        DRLSFCP(node_state_dim, vnf_state_dim, device=device)
+    ]
 
-    # for agent in agent_list:
-    #     train(agent, env, sfc_generator)
+    for agent in agent_list:
+        train(agent, env, sfc_generator)
 
     # evaluate
-    all_models = os.listdir('save/model')
-    agent_files = [file for file in all_models if file.endswith('.pth')]
+    agent_path = 'save/model/'
+    agent_name_list = [
+        'NCO',
+        'DRLSFCP',
+        'ActorEnhancedNCO',
+        'CriticEnhancedNCO',
+        'DDPG'
+        ]
 
     sfc_length_list = [8, 10, 12, 16, 20, 24]   # test agent placement under different max sfc length
-    for agent_file in agent_files:
-        agent_file_path = 'save/model/' + agent_file
+    for agent_name in agent_name_list:
+        agent_file_path = agent_path + agent_name + '.pth'
         agent = torch.load(agent_file_path, weights_only=False)
         evaluate(agent, env, sfc_generator, sfc_length_list)
 

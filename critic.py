@@ -7,20 +7,29 @@ import config
 
 
 class StateNetworkCritic(nn.Module):
-    def __init__(self, net_state_dim, vnf_state_dim, hidden_dim=512):
+    def __init__(self, net_state_dim, vnf_state_dim, num_nodes, hidden_dim=512):
         super().__init__()
+        self.num_nodes = num_nodes
         self.state_network = StateNetwork(net_state_dim, vnf_state_dim)
         self.state_linear = nn.Linear(vnf_state_dim, 1)
+        self.action_linear = nn.Linear(num_nodes, 1)
         self.l1 = nn.Linear(vnf_state_dim + config.MAX_SFC_LENGTH, hidden_dim)
         self.l2 = nn.Linear(hidden_dim, 1)
 
     def forward(self, state, action, mask=None):
+        # action: batch_size * max_vnf_length * num_nodes
         state = self.state_network(state, mask)  # batch_size * (node_num + max_sfc_length + 2) * vnf_state_dim
+
         # state attention pooling
-        score = self.state_linear(state)
-        weight = torch.softmax(score, dim=1)
-        state = (state * weight).sum(dim=1)  # batch_size * vnf_state_dim
-        action = action.squeeze(1)  # batch_size * max_sfc_length
+        state_score = self.state_linear(state)
+        state_weight = torch.softmax(state_score, dim=1)
+        state = (state * state_weight).sum(dim=1)  # batch_size * vnf_state_dim
+
+        # action attention
+        action_score = self.action_linear(action)
+        action_weight = torch.softmax(action_score, dim=-1)
+        action = (action * action_weight).sum(dim=-1)
+
         x = torch.cat((state, action), dim=1)
         x = self.l1(x)
         q = self.l2(F.relu(x))

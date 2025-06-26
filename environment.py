@@ -81,7 +81,7 @@ class Environment:
     # find the shortest path between two nodes
     def find_route(self, source, target):
         # source and target are elements of a tensor
-        source, target = str(source.item()), str(target.item())   # convert to str type
+        source, target = str(source), str(target)   # convert to str type
         if nx.has_path(self.graph, source, target):
             return nx.shortest_path(self.graph, source, target)
         else:
@@ -228,7 +228,7 @@ class Environment:
         self.state_dim = (self.num_nodes + config.MAX_SFC_LENGTH) * self.vnf_state_dim
 
     def step(self, sfc, placement):
-        source_dest_node_pair = sfc[:2].clone().detach().to(dtype=torch.int32)  # sfc[0:1] is the source dest node pair
+        source_dest_node_pair = sfc[:2]  # sfc[0:1] is the source dest node pair
         sfc = sfc[2:]   # sfc[2:] is the sfc
 
         self.clear_sfc()

@@ -71,7 +71,7 @@ class SFCBatchGenerator:
         return sfc_states
 
     def get_source_dest_node_pairs(self):
-        return torch.tensor(self.source_dest_node_pair, dtype=torch.float32)
+        return torch.tensor(self.source_dest_node_pair, dtype=torch.float32)    # use torch.float32 to calculate
 
     # generate qos vector according to vnf type
     @staticmethod
