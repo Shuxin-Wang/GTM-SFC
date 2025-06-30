@@ -67,7 +67,7 @@ def train(agent, env, sfc_generator):
     print('Agent saved to {}'.format(agent_file_path))
 
 
-def evaluate(agent, env, sfc_generator, sfc_length_list, episodes=10):
+def evaluate(agent, env, sfc_generator, sfc_length_list, episodes=100):
     agent_name = agent.__class__.__name__
     agent.actor.eval()
 
@@ -75,12 +75,12 @@ def evaluate(agent, env, sfc_generator, sfc_length_list, episodes=10):
     power_consumption_list = []
     exceeded_penalty_list = []
     reward_list = []
-    acceptance_ratio_list = []
 
     avg_placement_reward_list = []
     avg_power_consumption_list = []
     avg_exceeded_penalty_list = []
     avg_reward_list = []
+    avg_acceptance_ratio_list = []
 
     print('-' * 20 + agent_name + ' Evaluation Start' + '-' * 20)
     start_time = time.time()
@@ -105,11 +105,11 @@ def evaluate(agent, env, sfc_generator, sfc_length_list, episodes=10):
                     placement = agent.get_sfc_placement(state, exploration=False)
                     placement = placement[0][:len(sfc_list[i])].squeeze(0).to(dtype=torch.int32).tolist()  # masked placement
                     sfc = source_dest_node_pair.to(dtype=torch.int32).tolist() + sfc_list[i]
-                    env.step(sfc, placement)
-                    placement_reward_list.append(env.placement_reward)
-                    power_consumption_list.append(env.power_consumption)
-                    exceeded_penalty_list.append(env.exceeded_penalty)
-                    reward_list.append(env.reward)
+                env.step(sfc, placement)
+                placement_reward_list.append(env.lambda_placement * env.placement_reward)
+                power_consumption_list.append(env.lambda_power * env.power_consumption)
+                exceeded_penalty_list.append(env.exceeded_penalty)
+                reward_list.append(env.reward)
                 sfc_placed += (len(sfc_list[i]) == sum(env.vnf_placement))
                 env.clear_sfc()
 
@@ -117,7 +117,7 @@ def evaluate(agent, env, sfc_generator, sfc_length_list, episodes=10):
         avg_power_consumption_list.append(np.mean(power_consumption_list))
         avg_exceeded_penalty_list.append(np.mean(exceeded_penalty_list))
         avg_reward_list.append(np.mean(reward_list))
-        acceptance_ratio_list.append(sfc_placed / episodes / config.BATCH_SIZE)
+        avg_acceptance_ratio_list.append(sfc_placed / episodes / sfc_generator.batch_size)
 
     evaluation_time = time.time() - start_time
     print('Evaluation complete in {:.2f} seconds.'.format(evaluation_time))
@@ -130,7 +130,7 @@ def evaluate(agent, env, sfc_generator, sfc_length_list, episodes=10):
         'Average Power Consumption': avg_power_consumption_list,
         'Average Exceeded Penalty': avg_exceeded_penalty_list,
         'Average Reward': avg_reward_list,
-        'Acceptance Ratio': acceptance_ratio_list
+        'Average Acceptance Ratio': avg_acceptance_ratio_list
     })
     df.to_csv(csv_file_path, index=False)
     print('Evaluation results saved to {}'.format(csv_file_path))
@@ -160,24 +160,24 @@ if __name__ == '__main__':
     # train
     agent_list = [
         # NCO(vnf_state_dim, env.num_nodes, device),
-        # ActorEnhancedNCO(env.num_nodes, node_state_dim, vnf_state_dim, state_output_dim,
-        #                 config.MAX_SFC_LENGTH * env.num_nodes, device),
+        ActorEnhancedNCO(env.num_nodes, node_state_dim, vnf_state_dim, state_output_dim,
+                        config.MAX_SFC_LENGTH * env.num_nodes, device),
         # CriticEnhancedNCO(env.num_nodes, node_state_dim, vnf_state_dim, device),
-        DDPG(env.num_nodes, node_state_dim, vnf_state_dim, state_output_dim,
-             config.MAX_SFC_LENGTH * env.num_nodes, device),
-        DRLSFCP(node_state_dim, vnf_state_dim, device=device)
+        # DDPG(env.num_nodes, node_state_dim, vnf_state_dim, state_output_dim,
+        #      config.MAX_SFC_LENGTH * env.num_nodes, device),
+        # DRLSFCP(node_state_dim, vnf_state_dim, device=device)
     ]
 
-    for agent in agent_list:
-        train(agent, env, sfc_generator)
+    # for agent in agent_list:
+    #     train(agent, env, sfc_generator)
 
     # evaluate
     agent_path = 'save/model/'
     agent_name_list = [
         'NCO',
-        'DRLSFCP',
-        'ActorEnhancedNCO',
-        'CriticEnhancedNCO',
+        # 'DRLSFCP',
+        # 'ActorEnhancedNCO',
+        # 'CriticEnhancedNCO',
         'DDPG'
         ]
 
@@ -187,5 +187,5 @@ if __name__ == '__main__':
         agent = torch.load(agent_file_path, weights_only=False)
         evaluate(agent, env, sfc_generator, sfc_length_list)
 
-    plot.show_train_result('save/result/train')
-    plot.show_evaluate_result('save/result/evaluate')
+    # plot.show_train_result('save/result/train', agent_name_list)
+    plot.show_evaluate_result('save/result/evaluate', agent_name_list)

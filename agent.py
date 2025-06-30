@@ -188,13 +188,13 @@ class ActorEnhancedNCO(nn.Module):
 
         self.episode_reward = 0
 
-    def select_action(self, probs, noise_scale=0.1, exploration=True):
+    def select_action(self, logits, noise_scale=0.1, exploration=True):
         if exploration:
-            noise = torch.randn_like(probs) * noise_scale
-            probs_noised = probs + noise
-            action = torch.argmax(probs_noised, dim=-1)
+            noise = torch.randn_like(logits) * noise_scale
+            logits_noised = logits + noise
+            action = torch.argmax(logits_noised, dim=-1)
         else:
-            action = torch.argmax(probs, dim=-1)
+            action = torch.argmax(logits, dim=-1)
         return action
 
     def get_sfc_placement(self, state, exploration=False):
@@ -218,9 +218,9 @@ class ActorEnhancedNCO(nn.Module):
                 state = (net_state.to(self.device), sfc_state.to(self.device), source_dest_node_pair.to(self.device))
 
                 with torch.no_grad():
-                    _, probs = self.actor([state])
+                    logits, _ = self.actor([state])
 
-                action = self.select_action(probs)
+                action = self.select_action(logits)
                 placement = action[0][:len(sfc_list[i])].squeeze(0).to(dtype=torch.int32).tolist() # masked placement
                 sfc = source_dest_node_pair.to(dtype=torch.int32).tolist() + sfc_list[i]
                 next_node_states, reward = env.step(sfc, placement)
@@ -255,20 +255,16 @@ class ActorEnhancedNCO(nn.Module):
             next_states = list(batch_next_states)
             dones = torch.tensor(batch_dones, dtype=torch.float32).unsqueeze(1).to(self.device)
 
-            _, probs = self.actor(states)   # batch_size * max_sfc_length * node_num
-            B, T, N = probs.shape
-            probs_reshaped = probs.view(B * T, N)
-
-            dist = torch.distributions.Categorical(probs_reshaped)
-            action = dist.sample()  # every action choose a node
-            log_probs = dist.log_prob(action).view(B, T).mean(dim=1, keepdim=True)
+            logits, _ = self.actor(states)   # batch_size * max_sfc_length * node_num
+            log_probs = F.log_softmax(logits, dim=-1)
+            log_pi_action = log_probs.gather(dim=-1, index=actions.unsqueeze(-1)).squeeze(-1)  # get the log probs for the actions: batch_size * max_sfc_length
 
             with torch.no_grad():
                 baseline = self.critic(states)
             rewards = (rewards - rewards.mean()) / (rewards.std() + 1e-8)  # rewards normalization
             advantage = rewards - baseline
 
-            actor_loss = -(advantage * log_probs).mean()
+            actor_loss = -(advantage * log_pi_action).mean()
 
             self.actor_optimizer.zero_grad()
             actor_loss.backward()
@@ -475,12 +471,12 @@ class DDPG:
 
         self.episode_reward = 0
 
-    def select_action(self, probs, noise_scale=0.1, exploration=True):
+    def select_action(self, logits, noise_scale=0.1, exploration=True):
         if exploration:
-            noise = torch.randn_like(probs) * noise_scale
-            action = probs + noise
+            noise = torch.randn_like(logits) * noise_scale
+            action = logits + noise
         else:
-            action = probs
+            action = logits
         return action
 
     def get_sfc_placement(self, state, exploration=False):
@@ -504,9 +500,9 @@ class DDPG:
                 state = (net_state.to(self.device), sfc_state.to(self.device), source_dest_node_pair.to(self.device))
 
                 with torch.no_grad():
-                    _, probs = self.actor([state])
+                    logits, _ = self.actor([state])
 
-                action = self.select_action(probs)    # action_dim: batch_size * max_sfc_length * num_nodes
+                action = self.select_action(logits)    # action_dim: batch_size * max_sfc_length * num_nodes
                 placement = torch.argmax(action, dim=-1)    # batch_size * max_sfc_length
                 placement = placement[0][:len(sfc_list[i])].squeeze(0).to(dtype=torch.int32).tolist()  # masked placement
                 sfc = source_dest_node_pair.to(dtype=torch.int32).tolist() + sfc_list[i]
@@ -587,9 +583,9 @@ class DDPG:
             state = (net_state.to(self.device), sfc_state.to(self.device), source_dest_node_pair.to(self.device))
 
             with torch.no_grad():
-                _, probs = self.actor([state])
+                logits, _ = self.actor([state])
 
-            action = self.select_action(probs)  # action_dim: batch_size * max_sfc_length * num_nodes
+            action = self.select_action(logits)  # action_dim: batch_size * max_sfc_length * num_nodes
             placement = torch.argmax(action, dim=-1)    # batch_size * max_sfc_length
             placement = placement[0][:len(sfc_list[i])].squeeze(0).to(dtype=torch.int32).tolist()   # masked placement
             sfc = source_dest_node_pair.to(dtype=torch.int32).tolist() + sfc_list[i]
