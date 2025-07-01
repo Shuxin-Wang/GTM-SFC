@@ -113,20 +113,16 @@ class NCO(nn.Module):
             next_states = list(batch_next_states)
             dones = torch.tensor(batch_dones, dtype=torch.float32).unsqueeze(1).to(self.device)
 
-            _, probs = self.actor(states)   # batch_size * max_sfc_length * node_num
-            B, T, N = probs.shape
-            probs_reshaped = probs.view(B * T, N)
-
-            dist = torch.distributions.Categorical(probs_reshaped)
-            action = dist.sample()  # every action choose a node
-            log_probs = dist.log_prob(action).view(B, T).mean(dim=1, keepdim=True)
+            logits, _ = self.actor(states)   # batch_size * max_sfc_length * node_num
+            log_probs = F.log_softmax(logits, dim=-1)
+            log_pi_action = log_probs.gather(dim=-1, index=actions.unsqueeze(-1)).squeeze(-1)  # get the log probs for the actions: batch_size * max_sfc_length
 
             with torch.no_grad():
                 baseline = self.critic(states)
             rewards = (rewards - rewards.mean()) / (rewards.std() + 1e-8)   # rewards normalization
             advantage = rewards - baseline
 
-            actor_loss = -(advantage * log_probs).mean()
+            actor_loss = -(advantage * log_pi_action).mean()
 
             self.actor_optimizer.zero_grad()
             actor_loss.backward()
@@ -164,10 +160,9 @@ class NCO(nn.Module):
             placement = action[0][:len(sfc_list[i])].squeeze(0).to(dtype=torch.int32).tolist()  # masked placement
             sfc = source_dest_node_pair.to(dtype=torch.int32).tolist() + sfc_list[i]
             _, reward = env.step(sfc, placement)
-
+            env.sfc_placed_num += (len(sfc_list[i]) == sum(env.vnf_placement))
             self.episode_reward += reward
             env.clear_sfc()
-        env.clear()
 
 class ActorEnhancedNCO(nn.Module):
     def __init__(self, num_nodes, node_state_dim, vnf_state_dim, state_output_dim, action_dim, device='cpu'):
@@ -302,10 +297,9 @@ class ActorEnhancedNCO(nn.Module):
             placement = action[0][:len(sfc_list[i])].squeeze(0).to(dtype=torch.int32).tolist()  # masked placement
             sfc = source_dest_node_pair.to(dtype=torch.int32).tolist() + sfc_list[i]
             _, reward = env.step(sfc, placement)
-
+            env.sfc_placed_num += (len(sfc_list[i]) == sum(env.vnf_placement))
             self.episode_reward += reward
             env.clear_sfc()
-        env.clear()
 
 class CriticEnhancedNCO(nn.Module):
     def __init__(self, num_nodes, node_state_dim, vnf_state_dim, device='cpu'):
@@ -329,9 +323,10 @@ class CriticEnhancedNCO(nn.Module):
     def select_action(self, probs, noise_scale=0.1, exploration=True):
         if exploration:
             noise = torch.randn_like(probs) * noise_scale
-            action = probs + noise
+            probs_noised = probs + noise
+            action = torch.argmax(probs_noised, dim=-1)
         else:
-            action = probs
+            action = torch.argmax(probs, dim=-1)
         return action
 
     def get_sfc_placement(self, state, exploration=False):
@@ -393,20 +388,24 @@ class CriticEnhancedNCO(nn.Module):
             next_states = list(batch_next_states)
             dones = torch.tensor(batch_dones, dtype=torch.float32).unsqueeze(1).to(self.device)
 
-            _, probs = self.actor(states)   # batch_size * max_sfc_length * node_num
-            B, T, N = probs.shape
-            probs_reshaped = probs.view(B * T, N)
+            # _, probs = self.actor(states)   # batch_size * max_sfc_length * node_num
+            # B, T, N = probs.shape
+            # probs_reshaped = probs.view(B * T, N)
+            #
+            # dist = torch.distributions.Categorical(probs_reshaped)
+            # action = dist.sample()  # every action choose a node
+            # log_probs = dist.log_prob(action).view(B, T).mean(dim=1, keepdim=True)
 
-            dist = torch.distributions.Categorical(probs_reshaped)
-            action = dist.sample()  # every action choose a node
-            log_probs = dist.log_prob(action).view(B, T).mean(dim=1, keepdim=True)
+            logits, _ = self.actor(states)   # batch_size * max_sfc_length * node_num
+            log_probs = F.log_softmax(logits, dim=-1)
+            log_pi_action = log_probs.gather(dim=-1, index=actions.unsqueeze(-1)).squeeze(-1)  # get the log probs for the actions: batch_size * max_sfc_length
 
             with torch.no_grad():
                 baseline = self.critic(states, actions)
             rewards = (rewards - rewards.mean()) / (rewards.std() + 1e-8)  # rewards normalization
             advantage = rewards - baseline
 
-            actor_loss = -(advantage * log_probs).mean()
+            actor_loss = -(advantage * log_pi_action).mean()
 
             self.actor_optimizer.zero_grad()
             actor_loss.backward()
@@ -445,10 +444,9 @@ class CriticEnhancedNCO(nn.Module):
             placement = placement[0][:len(sfc_list[i])].squeeze(0).to(dtype=torch.int32).tolist()  # masked placement
             sfc = source_dest_node_pair.to(dtype=torch.int32).tolist() + sfc_list[i]
             _, reward = env.step(sfc, placement)
-
+            env.sfc_placed_num += (len(sfc_list[i]) == sum(env.vnf_placement))
             self.episode_reward += reward
             env.clear_sfc()
-        env.clear()
 
 class DDPG:
     def __init__(self,num_nodes, node_state_dim, vnf_state_dim, state_output_dim, action_dim, device='cpu'):
@@ -590,18 +588,17 @@ class DDPG:
             placement = placement[0][:len(sfc_list[i])].squeeze(0).to(dtype=torch.int32).tolist()   # masked placement
             sfc = source_dest_node_pair.to(dtype=torch.int32).tolist() + sfc_list[i]
             _, reward = env.step(sfc, placement)
-
+            env.sfc_placed_num += (len(sfc_list[i]) == sum(env.vnf_placement))
             self.episode_reward += reward
             env.clear_sfc()
-        env.clear()
 
 class DRLSFCP:
     def __init__(self, net_state_dim, vnf_state_dim, embedding_dim=64, device='cpu'):
         super().__init__()
         self.actor = DecoderActor(net_state_dim, vnf_state_dim).to(device)
-        self.actor_optimizer = optim.Adam(self.actor.parameters(), lr=1e-4)
+        self.actor_optimizer = optim.Adam(self.actor.parameters(), lr=1e-5)
         self.critic = DecoderCritic(net_state_dim, vnf_state_dim).to(device)
-        self.critic_optimizer = optim.Adam(self.critic.parameters(), lr=1e-3)
+        self.critic_optimizer = optim.Adam(self.critic.parameters(), lr=1e-4)
 
         self.replay_buffer = ReplayBuffer(capacity=10000)
 
@@ -665,7 +662,7 @@ class DRLSFCP:
                 env.clear_sfc()
             env.clear()
 
-    def train(self, episode, batch_size=10, discount=0.99, tau=0.005):
+    def train(self, episode, batch_size=10, discount=0.99):
 
         self.actor_loss_list.clear()
         self.critic_loss_list.clear()
@@ -730,10 +727,9 @@ class DRLSFCP:
             placement = action[0][:len(sfc_list[i])].squeeze(0).to(dtype=torch.int32).tolist()  # masked placement
             sfc = source_dest_node_pair.to(dtype=torch.int32).tolist() + sfc_list[i]
             _, reward = env.step(sfc, placement)
-
+            env.sfc_placed_num += (len(sfc_list[i]) == sum(env.vnf_placement))
             self.episode_reward += reward
             env.clear_sfc()
-        env.clear()
 
 if __name__ == '__main__':
     # todo: optimize code
