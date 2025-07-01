@@ -59,14 +59,20 @@ class Environment:
         self.placement_reward = 0
         self.power_consumption = 0
         self.exceeded_penalty = 0
+        self.reward = 0
+        self.sfc_placed_num = 0
 
-        self.lambda_placement = 1
+        self.lambda_placement = 50
         self.lambda_power = 0.25
         self.lambda_capacity = 0.25
         self.lambda_bandwidth = 0.01
         self.lambda_latency = 0.01
 
-        self.reward = 0
+        # record episode data
+        self.placement_reward_list = []
+        self.power_consumption_list = []
+        self.exceeded_penalty_list = []
+        self.reward_list = []
 
     # place VNF and record exceeded node capacity
     def place_vnf(self, sfc, placement):
@@ -76,7 +82,7 @@ class Environment:
                 self.vnf_placement[i] = 1
             else:
                 self.node_used[node] += self.vnf_properties[vnf]['size']
-                self.vnf_placement[i] = -1
+                # self.vnf_placement[i] = -1
 
     # find the shortest path between two nodes
     def find_route(self, source, target):
@@ -151,25 +157,34 @@ class Environment:
         for i in range(len(sfc)):
             index = sfc[i]
             # size * bandwidth / latency
-            vnf_reward = 100 * self.vnf_properties[index]['size'] \
-                         * self.vnf_properties[index]['bandwidth'] \
-                         / self.vnf_properties[index]['latency']
+            vnf_reward = self.vnf_properties[index]['size'] \
+                         * (self.vnf_properties[index]['bandwidth'] / 20) \
+                         / (self.vnf_properties[index]['latency'] / 20)
             self.placement_reward += self.vnf_placement[i] * vnf_reward
 
         if len(sfc) == sum(self.vnf_placement):
-            self.placement_reward += 500
+            self.placement_reward = self.placement_reward * 2
 
-        # print(f"SFC reward: {self.lambda_placement * self.placement_reward}, power consumption: {self.lambda_power * self.power_consumption}")
-        # print(f'exceeded capacity: {self.lambda_capacity * self.exceeded_capacity}, exceeded bandwidth: {self.lambda_bandwidth * self.exceeded_bandwidth}, exceeded latency: {self.lambda_latency * self.exceeded_latency}')
+        self.placement_reward = self.lambda_placement * self.placement_reward
+
+        self.power_consumption = self.lambda_power * self.power_consumption
+
         self.exceeded_penalty = (self.lambda_capacity * self.exceeded_capacity
                                  + self.lambda_bandwidth * self.exceeded_bandwidth
                                  + self.lambda_latency * self.exceeded_latency)
 
-        self.reward = (self.lambda_placement * self.placement_reward
-                       - self.lambda_power * self.power_consumption
-                       - self.lambda_capacity * self.exceeded_capacity
-                       - self.lambda_bandwidth * self.exceeded_bandwidth
-                       - self.lambda_latency * self.exceeded_latency)
+        # print(f"SFC reward: {self.lambda_placement * self.placement_reward},"
+        #       f"power consumption: {self.lambda_power * self.power_consumption}")
+        # print(f'exceeded capacity: {self.lambda_capacity * self.exceeded_capacity},'
+        #       f'exceeded bandwidth: {self.lambda_bandwidth * self.exceeded_bandwidth},'
+        #       f'exceeded latency: {self.lambda_latency * self.exceeded_latency}')
+
+        self.reward = self.placement_reward - self.power_consumption - self.exceeded_penalty
+
+        self.placement_reward_list.append(self.placement_reward)
+        self.power_consumption_list.append(self.power_consumption)
+        self.exceeded_penalty_list.append(self.exceeded_penalty)
+        self.reward_list.append(self.reward)
 
     @staticmethod
     def link_to_index(links):
@@ -298,6 +313,12 @@ class Environment:
         self.power_consumption = 0
         self.exceeded_penalty = 0
         self.reward = 0
+        self.sfc_placed_num = 0
+
+        self.placement_reward_list.clear()
+        self.power_consumption_list.clear()
+        self.exceeded_penalty_list.clear()
+        self.reward_list.clear()
 
 if __name__ == '__main__':
 
