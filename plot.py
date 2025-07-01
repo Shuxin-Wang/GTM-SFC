@@ -113,10 +113,10 @@ def show_evaluate_result(dir_path, agent_name_list):
 if __name__ == '__main__':
     agent_name_list = [
         'NCO',
-        # 'DRLSFCP',
-        # 'ActorEnhancedNCO',
+        'DRLSFCP',
+        'ActorEnhancedNCO',
         # 'CriticEnhancedNCO',
-        # 'DDPG'
+        'DDPG'
         ]
     show_train_result('save/result/train', agent_name_list)
     show_evaluate_result('save/result/evaluate', agent_name_list)
