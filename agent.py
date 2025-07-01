@@ -183,13 +183,13 @@ class ActorEnhancedNCO(nn.Module):
 
         self.episode_reward = 0
 
-    def select_action(self, logits, noise_scale=0.1, exploration=True):
+    def select_action(self, probs, noise_scale=0.1, exploration=True):
         if exploration:
-            noise = torch.randn_like(logits) * noise_scale
-            logits_noised = logits + noise
-            action = torch.argmax(logits_noised, dim=-1)
+            noise = torch.randn_like(probs) * noise_scale
+            probs_noised = probs + noise
+            action = torch.argmax(probs_noised, dim=-1)
         else:
-            action = torch.argmax(logits, dim=-1)
+            action = torch.argmax(probs, dim=-1)
         return action
 
     def get_sfc_placement(self, state, exploration=False):
@@ -213,9 +213,9 @@ class ActorEnhancedNCO(nn.Module):
                 state = (net_state.to(self.device), sfc_state.to(self.device), source_dest_node_pair.to(self.device))
 
                 with torch.no_grad():
-                    logits, _ = self.actor([state])
+                    _, probs = self.actor([state])
 
-                action = self.select_action(logits)
+                action = self.select_action(probs)
                 placement = action[0][:len(sfc_list[i])].squeeze(0).to(dtype=torch.int32).tolist() # masked placement
                 sfc = source_dest_node_pair.to(dtype=torch.int32).tolist() + sfc_list[i]
                 next_node_states, reward = env.step(sfc, placement)
@@ -466,12 +466,12 @@ class DDPG:
 
         self.episode_reward = 0
 
-    def select_action(self, logits, noise_scale=0.1, exploration=True):
+    def select_action(self, probs, noise_scale=0.1, exploration=True):
         if exploration:
-            noise = torch.randn_like(logits) * noise_scale
-            action = logits + noise
+            noise = torch.randn_like(probs) * noise_scale
+            action = probs + noise
         else:
-            action = logits
+            action = probs
         return action
 
     def get_sfc_placement(self, state, exploration=False):
@@ -495,9 +495,9 @@ class DDPG:
                 state = (net_state.to(self.device), sfc_state.to(self.device), source_dest_node_pair.to(self.device))
 
                 with torch.no_grad():
-                    logits, _ = self.actor([state])
+                    _, probs = self.actor([state])
 
-                action = self.select_action(logits)    # action_dim: batch_size * max_sfc_length * num_nodes
+                action = self.select_action(probs)    # action_dim: batch_size * max_sfc_length * num_nodes
                 placement = torch.argmax(action, dim=-1)    # batch_size * max_sfc_length
                 placement = placement[0][:len(sfc_list[i])].squeeze(0).to(dtype=torch.int32).tolist()  # masked placement
                 sfc = source_dest_node_pair.to(dtype=torch.int32).tolist() + sfc_list[i]
@@ -578,9 +578,9 @@ class DDPG:
             state = (net_state.to(self.device), sfc_state.to(self.device), source_dest_node_pair.to(self.device))
 
             with torch.no_grad():
-                logits, _ = self.actor([state])
+                _, probs = self.actor([state])
 
-            action = self.select_action(logits)  # action_dim: batch_size * max_sfc_length * num_nodes
+            action = self.select_action(probs)  # action_dim: batch_size * max_sfc_length * num_nodes
             placement = torch.argmax(action, dim=-1)    # batch_size * max_sfc_length
             placement = placement[0][:len(sfc_list[i])].squeeze(0).to(dtype=torch.int32).tolist()   # masked placement
             sfc = source_dest_node_pair.to(dtype=torch.int32).tolist() + sfc_list[i]
@@ -605,20 +605,18 @@ class DRLSFCP:
 
         self.episode_reward = 0
 
-        self._last_hidden_state = None
-
-    def select_action(self, logits, noise_scale=0.1, exploration=True):
+    def select_action(self, probs, noise_scale=0.1, exploration=True):
         if exploration:
-            noise = torch.randn_like(logits) * noise_scale
-            probs_noised = logits + noise
+            noise = torch.randn_like(probs) * noise_scale
+            probs_noised = probs + noise
             action = torch.argmax(probs_noised, dim=-1)
         else:
-            action = torch.argmax(logits, dim=-1)
+            action = torch.argmax(probs, dim=-1)
         return action
 
     def get_sfc_placement(self, state, exploration=False):
-        logits, _ = self.actor([state])
-        action = self.select_action(logits, exploration=exploration)
+        _, probs = self.actor([state])
+        action = self.select_action(probs, exploration=exploration)
         placement = action
         return placement
 
@@ -637,9 +635,9 @@ class DRLSFCP:
                 state = (net_state.to(self.device), sfc_state.to(self.device), source_dest_node_pair.to(self.device))
 
                 with torch.no_grad():
-                    logits, _ = self.actor([state])
+                    _, probs = self.actor([state])
 
-                action = self.select_action(logits)
+                action = self.select_action(probs)
                 placement = action[0][:len(sfc_list[i])].squeeze(0).to(dtype=torch.int32).tolist()  # masked placement
                 sfc = source_dest_node_pair.to(dtype=torch.int32).tolist() + sfc_list[i]
                 next_node_states, reward = env.step(sfc, placement)
@@ -718,9 +716,9 @@ class DRLSFCP:
             state = (net_state.to(self.device), sfc_state.to(self.device), source_dest_node_pair.to(self.device))
 
             with torch.no_grad():
-                logits, _ = self.actor([state])
+                _, probs = self.actor([state])
 
-            action = self.select_action(logits)  # action_dim: batch_size * max_sfc_length * 1
+            action = self.select_action(probs)  # action_dim: batch_size * max_sfc_length * 1
             placement = action[0][:len(sfc_list[i])].squeeze(0).to(dtype=torch.int32).tolist()  # masked placement
             sfc = source_dest_node_pair.to(dtype=torch.int32).tolist() + sfc_list[i]
             _, reward = env.step(sfc, placement)

@@ -129,5 +129,6 @@ class DecoderActor(nn.Module):
             query = output.permute(1, 0, 2) # batch_size * 1 * embedding_dim
 
         all_logits = torch.stack(placement_logits_list, dim=1)  # batch_size * max_sfc_length * num_nodes
+        all_probs = F.softmax(all_logits, dim=-1)
 
-        return all_logits, hidden_state
+        return all_logits, all_probs

@@ -152,16 +152,16 @@ if __name__ == '__main__':
     # train
     agent_list = [
         NCO(vnf_state_dim, env.num_nodes, device),
-        # ActorEnhancedNCO(env.num_nodes, node_state_dim, vnf_state_dim, state_output_dim,
-        #                 config.MAX_SFC_LENGTH * env.num_nodes, device),
+        ActorEnhancedNCO(env.num_nodes, node_state_dim, vnf_state_dim, state_output_dim,
+                        config.MAX_SFC_LENGTH * env.num_nodes, device),
         # CriticEnhancedNCO(env.num_nodes, node_state_dim, vnf_state_dim, device),
-        # DDPG(env.num_nodes, node_state_dim, vnf_state_dim, state_output_dim,
-        #      config.MAX_SFC_LENGTH * env.num_nodes, device),
-        # DRLSFCP(node_state_dim, vnf_state_dim, device=device)
+        DDPG(env.num_nodes, node_state_dim, vnf_state_dim, state_output_dim,
+             config.MAX_SFC_LENGTH * env.num_nodes, device),
+        DRLSFCP(node_state_dim, vnf_state_dim, device=device)
     ]
 
-    # for agent in agent_list:
-    #     train(agent, env, sfc_generator, iteration=config.ITERATION)
+    for agent in agent_list:
+        train(agent, env, sfc_generator, iteration=config.ITERATION)
 
     # evaluate
     agent_path = 'save/model/'
@@ -179,5 +179,5 @@ if __name__ == '__main__':
         agent = torch.load(agent_file_path, weights_only=False)
         evaluate(agent, env, sfc_generator, sfc_length_list)
 
-    # plot.show_train_result('save/result/train', agent_name_list)
+    plot.show_train_result('save/result/train', agent_name_list)
     plot.show_evaluate_result('save/result/evaluate', agent_name_list)
