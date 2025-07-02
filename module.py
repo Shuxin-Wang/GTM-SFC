@@ -111,6 +111,7 @@ class StateNetwork(nn.Module):
         # self.sfc_attention = MultiheadAttention(dim_model=vnf_state_dim, dim_k=3, dim_v=3, num_heads=1)
         self.sfc_attention = TransformerEncoder(dim_model=vnf_state_dim)
         self.node_linear = nn.Linear(1, vnf_state_dim, dtype=torch.float32)
+        self.sfc_linear = nn.Linear(config.MAX_SFC_LENGTH + 2, config.MAX_SFC_LENGTH)
 
     def forward(self, state, mask=None):
         net_state, sfc_state, source_dest_node_pair = zip(*state)
@@ -125,14 +126,15 @@ class StateNetwork(nn.Module):
         batch_source_dest_node_pair = torch.stack(source_dest_node_pair, dim=0).unsqueeze(2)   # batch_size * 2 * 1
 
         batch_net_attention = self.net_attention(batch_net_state)
-        batch_net_attention = batch_net_attention.view(num_nodes, batch_size, -1).transpose(0, 1)   # batch_size, num_nodes, vnf_state_dim
-        # batch_sfc_attention, _ = self.sfc_attention(batch_sfc_state, batch_sfc_state, batch_sfc_state, mask=mask)
-        batch_sfc_attention = self.sfc_attention(batch_sfc_state)
-        batch_node_pair = self.node_linear(batch_source_dest_node_pair)
+        batch_net_attention = batch_net_attention.view(batch_size, num_nodes, -1)   # batch_size, num_nodes, vnf_state_dim
 
-        # batch_size * (node_num + max_sfc_length + 2) * vnf_state_dim
-        batch_state = torch.cat((batch_net_attention, batch_sfc_attention, batch_node_pair), dim=1)
+        batch_node_pair = self.node_linear(batch_source_dest_node_pair) # batch_size * 2 * vnf_state_dim
+        batch_sfc = torch.cat((batch_sfc_state, batch_node_pair), dim=1)
+        batch_sfc_attention = self.sfc_attention(batch_sfc).transpose(1, 2) # batch_size * vnf_state_dim * max_sfc_length
+        batch_sfc_attention = self.sfc_linear(batch_sfc_attention).transpose(1, 2)  # batch_size * max_sfc_length * vnf_state_dim
 
+        # batch_size * (node_num + max_sfc_length) * vnf_state_dim
+        batch_state = torch.cat((batch_net_attention, batch_sfc_attention), dim=1)
         return batch_state
 
 # todo: drl-sfcp
