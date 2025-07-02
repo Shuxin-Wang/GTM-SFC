@@ -10,7 +10,8 @@ import config
 import environment
 from sfc import SFCBatchGenerator
 from actor import StateNetworkActor, Seq2SeqActor, DecoderActor
-from critic import StateNetworkCritic, LSTMCritic, DecoderCritic
+from critic import StateNetworkCritic, LSTMCritic, DecoderCritic, LSTMCriticEnhanced
+
 
 class ReplayBuffer:
     def __init__(self, capacity):
@@ -38,7 +39,7 @@ class NCO(nn.Module):
         self.actor_optimizer = optim.Adam(self.actor.parameters(), lr=1e-4)
         self.critic_optimizer = optim.Adam(self.critic.parameters(), lr=1e-3)
 
-        self.replay_buffer = ReplayBuffer(capacity=10000)
+        self.replay_buffer = ReplayBuffer(capacity=1000)
 
         self.actor_loss_list = []
         self.critic_loss_list = []
@@ -140,13 +141,10 @@ class NCO(nn.Module):
             self.critic_optimizer.step()
             self.critic_loss_list.append(critic_loss.item())
 
-    def test(self, env, sfc_generator):
+    def test(self, env, sfc_list, sfc_state_list, source_dest_node_pairs):
         self.episode_reward = 0
         env.clear()
-        sfc_list = sfc_generator.get_sfc_batch()
-        sfc_state_list = sfc_generator.get_sfc_states()
-        source_dest_node_pairs = sfc_generator.get_source_dest_node_pairs()
-        for i in range(sfc_generator.batch_size):  # each episode contains batch_size sfc
+        for i in range(len(sfc_list)):  # each episode contains batch_size sfc
             aggregate_features = env.aggregate_features()  # get aggregated node features
             edge_index = env.get_edge_index()
             net_state = Data(x=aggregate_features, edge_index=edge_index)
@@ -164,17 +162,17 @@ class NCO(nn.Module):
             self.episode_reward += reward
             env.clear_sfc()
 
-class ActorEnhancedNCO(nn.Module):
+class EnhancedNCO(nn.Module):
     def __init__(self, num_nodes, node_state_dim, vnf_state_dim, state_output_dim, action_dim, device='cpu'):
         super().__init__()
 
-        self.actor = StateNetworkActor(num_nodes, node_state_dim, vnf_state_dim, state_output_dim, action_dim).to(device)
-        self.critic = LSTMCritic(vnf_state_dim, hidden_dim=8).to(device)
+        self.actor = StateNetworkActor(num_nodes, node_state_dim, vnf_state_dim).to(device)
+        self.critic = LSTMCriticEnhanced(node_state_dim, vnf_state_dim, num_nodes, hidden_dim=64).to(device)
 
         self.actor_optimizer = optim.Adam(self.actor.parameters(), lr=1e-4)
         self.critic_optimizer = optim.Adam(self.critic.parameters(), lr=1e-3)
 
-        self.replay_buffer = ReplayBuffer(capacity=10000)
+        self.replay_buffer = ReplayBuffer(capacity=1000)
 
         self.actor_loss_list = []
         self.critic_loss_list = []
@@ -276,13 +274,143 @@ class ActorEnhancedNCO(nn.Module):
             self.critic_optimizer.step()
             self.critic_loss_list.append(critic_loss.item())
 
-    def test(self, env, sfc_generator):
+    def test(self, env, sfc_list, sfc_state_list, source_dest_node_pairs):
         self.episode_reward = 0
         env.clear()
-        sfc_list = sfc_generator.get_sfc_batch()
-        sfc_state_list = sfc_generator.get_sfc_states()
-        source_dest_node_pairs = sfc_generator.get_source_dest_node_pairs()
-        for i in range(sfc_generator.batch_size):  # each episode contains batch_size sfc
+        for i in range(len(sfc_list)):  # each episode contains batch_size sfc
+            aggregate_features = env.aggregate_features()  # get aggregated node features
+            edge_index = env.get_edge_index()
+            net_state = Data(x=aggregate_features, edge_index=edge_index)
+            sfc_state = sfc_state_list[i]
+            source_dest_node_pair = source_dest_node_pairs[i]
+            state = (net_state.to(self.device), sfc_state.to(self.device), source_dest_node_pair.to(self.device))
+
+            with torch.no_grad():
+                _, probs = self.actor([state])
+
+            action = self.select_action(probs)  # action_dim: batch_size * max_sfc_length * 1
+            placement = action[0][:len(sfc_list[i])].squeeze(0).to(dtype=torch.int32).tolist()  # masked placement
+            sfc = source_dest_node_pair.to(dtype=torch.int32).tolist() + sfc_list[i]
+            _, reward = env.step(sfc, placement)
+            self.episode_reward += reward
+            env.clear_sfc()
+
+class ActorEnhancedNCO(nn.Module):
+    def __init__(self, num_nodes, node_state_dim, vnf_state_dim, state_output_dim, action_dim, device='cpu'):
+        super().__init__()
+
+        self.actor = StateNetworkActor(num_nodes, node_state_dim, vnf_state_dim, state_output_dim, action_dim).to(device)
+        self.critic = LSTMCritic(vnf_state_dim, hidden_dim=8).to(device)
+
+        self.actor_optimizer = optim.Adam(self.actor.parameters(), lr=1e-4)
+        self.critic_optimizer = optim.Adam(self.critic.parameters(), lr=1e-3)
+
+        self.replay_buffer = ReplayBuffer(capacity=1000)
+
+        self.actor_loss_list = []
+        self.critic_loss_list = []
+
+        self.device = device
+
+        self.episode_reward = 0
+
+    def select_action(self, probs, noise_scale=0.1, exploration=True):
+        if exploration:
+            noise = torch.randn_like(probs) * noise_scale
+            probs_noised = probs + noise
+            action = torch.argmax(probs_noised, dim=-1)
+        else:
+            action = torch.argmax(probs, dim=-1)
+        return action
+
+    def get_sfc_placement(self, state, exploration=False):
+        _, probs = self.actor([state])
+        action = self.select_action(probs, exploration=exploration)
+        placement = action
+        return placement
+
+    def fill_replay_buffer(self, env, sfc_generator, episode):
+        env.clear()
+        for e in range(episode):
+            sfc_list = sfc_generator.get_sfc_batch()
+            sfc_state_list = sfc_generator.get_sfc_states()
+            source_dest_node_pairs = sfc_generator.get_source_dest_node_pairs()
+            for i in range(sfc_generator.batch_size):
+                aggregate_features = env.aggregate_features()  # get aggregated node features
+                edge_index = env.get_edge_index()
+                net_state = Data(x=aggregate_features, edge_index=edge_index)
+                sfc_state = sfc_state_list[i]
+                source_dest_node_pair = source_dest_node_pairs[i]
+                state = (net_state.to(self.device), sfc_state.to(self.device), source_dest_node_pair.to(self.device))
+
+                with torch.no_grad():
+                    _, probs = self.actor([state])
+
+                action = self.select_action(probs)
+                placement = action[0][:len(sfc_list[i])].squeeze(0).to(dtype=torch.int32).tolist() # masked placement
+                sfc = source_dest_node_pair.to(dtype=torch.int32).tolist() + sfc_list[i]
+                next_node_states, reward = env.step(sfc, placement)
+
+                if i + 1 >= sfc_generator.batch_size:
+                    next_state = state
+                    done = torch.tensor(1, dtype=torch.float32)
+                else:
+                    next_net_state = Data(x=next_node_states, edge_index=edge_index)
+                    next_sfc_state = sfc_state_list[i + 1]
+                    next_source_dest_node_pair = source_dest_node_pairs[i + 1]
+                    next_state = (next_net_state.to(self.device), next_sfc_state.to(self.device),
+                                  next_source_dest_node_pair.to(self.device))
+                    done = torch.tensor(0, dtype=torch.float32)
+
+                self.replay_buffer.push(state, action, reward, next_state, done)
+                env.clear_sfc()
+            env.clear()
+
+    def train(self, episode, batch_size=10, discount=0.99, tau=0.005):
+
+        self.actor_loss_list.clear()
+        self.critic_loss_list.clear()
+
+        for e in range(episode):
+            batch_states, batch_actions, batch_rewards, batch_next_states, batch_dones = zip(
+                *self.replay_buffer.sample(batch_size))
+            states = list(batch_states)  # state = [(net_state, sfc_state), (net_state, sfc_state)...]
+            actions = torch.stack(batch_actions, dim=0).squeeze(1).to(
+                self.device)  # action = torch.tensor((action), (action)...)) batch_size * max_sfc_length
+            rewards = torch.tensor(batch_rewards, dtype=torch.float32).unsqueeze(1).to(self.device)
+            next_states = list(batch_next_states)
+            dones = torch.tensor(batch_dones, dtype=torch.float32).unsqueeze(1).to(self.device)
+
+            logits, _ = self.actor(states)   # batch_size * max_sfc_length * node_num
+            log_probs = F.log_softmax(logits, dim=-1)
+            log_pi_action = log_probs.gather(dim=-1, index=actions.unsqueeze(-1)).squeeze(-1)  # get the log probs for the actions: batch_size * max_sfc_length
+
+            with torch.no_grad():
+                baseline = self.critic(states)
+            rewards = (rewards - rewards.mean()) / (rewards.std() + 1e-8)  # rewards normalization
+            advantage = rewards - baseline
+
+            actor_loss = -(advantage * log_pi_action).mean()
+
+            self.actor_optimizer.zero_grad()
+            actor_loss.backward()
+            nn.utils.clip_grad_norm_(self.actor.parameters(), max_norm=1)
+            self.actor_optimizer.step()
+            self.actor_loss_list.append(actor_loss.item())
+
+            values = self.critic(states)
+            critic_loss = F.mse_loss(values, rewards)
+
+            self.critic_optimizer.zero_grad()
+            critic_loss.backward()
+            nn.utils.clip_grad_norm_(self.critic.parameters(), max_norm=1)
+            self.critic_optimizer.step()
+            self.critic_loss_list.append(critic_loss.item())
+
+    def test(self, env, sfc_list, sfc_state_list, source_dest_node_pairs):
+        self.episode_reward = 0
+        env.clear()
+        for i in range(len(sfc_list)):  # each episode contains batch_size sfc
             aggregate_features = env.aggregate_features()  # get aggregated node features
             edge_index = env.get_edge_index()
             net_state = Data(x=aggregate_features, edge_index=edge_index)
@@ -310,7 +438,7 @@ class CriticEnhancedNCO(nn.Module):
         self.actor_optimizer = optim.Adam(self.actor.parameters(), lr=1e-4)
         self.critic_optimizer = optim.Adam(self.critic.parameters(), lr=1e-3)
 
-        self.replay_buffer = ReplayBuffer(capacity=10000)
+        self.replay_buffer = ReplayBuffer(capacity=1000)
 
         self.actor_loss_list = []
         self.critic_loss_list = []
@@ -420,13 +548,10 @@ class CriticEnhancedNCO(nn.Module):
             self.critic_optimizer.step()
             self.critic_loss_list.append(critic_loss.item())
 
-    def test(self, env, sfc_generator):
+    def test(self, env, sfc_list, sfc_state_list, source_dest_node_pairs):
         self.episode_reward = 0
         env.clear()
-        sfc_list = sfc_generator.get_sfc_batch()
-        sfc_state_list = sfc_generator.get_sfc_states()
-        source_dest_node_pairs = sfc_generator.get_source_dest_node_pairs()
-        for i in range(sfc_generator.batch_size):  # each episode contains batch_size sfc
+        for i in range(len(sfc_list)):  # each episode contains batch_size sfc
             aggregate_features = env.aggregate_features()  # get aggregated node features
             edge_index = env.get_edge_index()
             net_state = Data(x=aggregate_features, edge_index=edge_index)
@@ -457,7 +582,7 @@ class DDPG:
         self.target_critic.load_state_dict(self.critic.state_dict())
         self.critic_optimizer = optim.Adam(self.critic.parameters(), lr=1e-3)
 
-        self.replay_buffer = ReplayBuffer(capacity=10000)
+        self.replay_buffer = ReplayBuffer(capacity=1000)
 
         self.actor_loss_list = []
         self.critic_loss_list = []
@@ -539,6 +664,8 @@ class DDPG:
                 target_Q = rewards + ((1 - dones) * discount * target_Q)
 
             critic_loss = F.mse_loss(current_Q, target_Q)
+            for param in self.critic.parameters():
+                critic_loss += 1e-4 * param.pow(2).sum()
 
             self.critic_optimizer.zero_grad()
             critic_loss.backward()
@@ -563,13 +690,10 @@ class DDPG:
             for param, target_param in zip(self.actor.parameters(), self.target_actor.parameters()):
                 target_param.data.copy_(tau * param.data + (1 - tau) * target_param.data)
 
-    def test(self, env, sfc_generator):
+    def test(self, env, sfc_list, sfc_state_list, source_dest_node_pairs):
         self.episode_reward = 0
         env.clear()
-        sfc_list = sfc_generator.get_sfc_batch()
-        sfc_state_list = sfc_generator.get_sfc_states()
-        source_dest_node_pairs = sfc_generator.get_source_dest_node_pairs()
-        for i in range(sfc_generator.batch_size):  # each episode contains batch_size sfc
+        for i in range(len(sfc_list)):  # each episode contains batch_size sfc
             aggregate_features = env.aggregate_features()  # get aggregated node features
             edge_index = env.get_edge_index()
             net_state = Data(x=aggregate_features, edge_index=edge_index)
@@ -596,7 +720,7 @@ class DRLSFCP:
         self.critic = DecoderCritic(net_state_dim, vnf_state_dim).to(device)
         self.critic_optimizer = optim.Adam(self.critic.parameters(), lr=1e-4)
 
-        self.replay_buffer = ReplayBuffer(capacity=10000)
+        self.replay_buffer = ReplayBuffer(capacity=1000)
 
         self.actor_loss_list = []
         self.critic_loss_list = []
@@ -701,13 +825,10 @@ class DRLSFCP:
 
             self.actor_loss_list.append(actor_loss.item())
 
-    def test(self, env, sfc_generator):
+    def test(self, env, sfc_list, sfc_state_list, source_dest_node_pairs):
         self.episode_reward = 0
         env.clear()
-        sfc_list = sfc_generator.get_sfc_batch()
-        sfc_state_list = sfc_generator.get_sfc_states()
-        source_dest_node_pairs = sfc_generator.get_source_dest_node_pairs()
-        for i in range(sfc_generator.batch_size):  # each episode contains batch_size sfc
+        for i in range(len(sfc_list)):  # each episode contains batch_size sfc
             aggregate_features = env.aggregate_features()  # get aggregated node features
             edge_index = env.get_edge_index()
             net_state = Data(x=aggregate_features, edge_index=edge_index)
