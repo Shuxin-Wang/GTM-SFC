@@ -4,6 +4,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import networkx as nx
 from torch_geometric.nn import GATConv, GCNConv
+from torch_geometric.utils import to_dense_batch
 from torch_geometric.data import Data, Batch
 from environment import Environment
 from sfc import SFCBatchGenerator
@@ -104,7 +105,7 @@ class TransformerEncoder(nn.Module):
     def forward(self, sfc_state):
         return self.encoder(sfc_state)
 
-class StateNetwork(nn.Module):
+class StateNetworkOriginal(nn.Module):
     def __init__(self, net_state_dim, vnf_state_dim):
         super().__init__()
         self.net_attention = GAT(input_dim=net_state_dim, hidden_dim=64, output_dim=4, num_heads=8)
@@ -135,6 +136,50 @@ class StateNetwork(nn.Module):
 
         # batch_size * (node_num + max_sfc_length) * vnf_state_dim
         batch_state = torch.cat((batch_net_attention, batch_sfc_attention), dim=1)
+        return batch_state
+
+class StateNetwork(nn.Module):
+    def __init__(self, net_state_dim, vnf_state_dim):
+        super().__init__()
+        self.net_state_dim = net_state_dim
+        self.net_attention = GAT(input_dim=net_state_dim, hidden_dim=64, output_dim=4, num_heads=8)
+        # self.sfc_attention = MultiheadAttention(dim_model=vnf_state_dim, dim_k=3, dim_v=3, num_heads=1)
+        self.sfc_attention = TransformerEncoder(dim_model=vnf_state_dim)
+        self.net_linear = nn.Linear(net_state_dim, vnf_state_dim)
+        self.node_linear = nn.Linear(1, vnf_state_dim, dtype=torch.float32)
+        self.sfc_linear = nn.Linear(config.MAX_SFC_LENGTH + 2, config.MAX_SFC_LENGTH)
+
+        self.query = nn.Linear(net_state_dim, net_state_dim)
+        self.key = nn.Linear(net_state_dim, net_state_dim)
+        self.value = nn.Linear(net_state_dim, net_state_dim)
+
+    def forward(self, state, mask=None):
+        net_state, sfc_state, source_dest_node_pair = zip(*state)
+        net_states_list = list(net_state)
+        sfc_states_list = list(sfc_state)
+
+        batch_net_state = Batch.from_data_list(net_states_list)  # net state = DataBatch(x, edge_index, batch, ptr)
+        batch_net_state, mask = to_dense_batch(batch_net_state.x, batch_net_state.batch)    # batch_size * num_nodes * net_state_dim
+
+        Q = self.query(batch_net_state)     # batch_size * num_nodes * net_state_dim
+        K = self.key(batch_net_state)   # batch_size * num_nodes * net_state_dim
+        V = self.value(batch_net_state) # batch_size * num_nodes * net_state_dim
+
+        scores = torch.matmul(Q, K.transpose(-2, -1)) / (self.net_state_dim ** 0.5) # batch_size * num_nodes * num_nodes
+        attn_weights = torch.softmax(scores, dim=-1)    # batch_size * num_nodes * net_state_dim
+        batch_net_state = torch.matmul(attn_weights, V) # batch_size * num_nodes * net_state_dim
+        batch_net_state = self.net_linear(batch_net_state)  # batch_size * num_nodes * vnf_state_dim
+
+        batch_sfc_state = torch.stack(sfc_states_list, dim=0)
+        batch_source_dest_node_pair = torch.stack(source_dest_node_pair, dim=0).unsqueeze(2)   # batch_size * 2 * 1
+
+        batch_node_pair = self.node_linear(batch_source_dest_node_pair) # batch_size * 2 * vnf_state_dim
+        batch_sfc = torch.cat((batch_sfc_state, batch_node_pair), dim=1)
+        batch_sfc_attention = self.sfc_attention(batch_sfc).transpose(1, 2) # batch_size * vnf_state_dim * max_sfc_length
+        batch_sfc_attention = self.sfc_linear(batch_sfc_attention).transpose(1, 2)  # batch_size * max_sfc_length * vnf_state_dim
+
+        # batch_size * (node_num + max_sfc_length) * vnf_state_dim
+        batch_state = torch.cat((batch_net_state, batch_sfc_attention), dim=1)
         return batch_state
 
 # todo: drl-sfcp

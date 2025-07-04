@@ -10,7 +10,7 @@ import config
 import environment
 from sfc import SFCBatchGenerator
 from actor import StateNetworkActor, Seq2SeqActor, DecoderActor
-from critic import StateNetworkCritic, LSTMCritic, DecoderCritic, LSTMCriticEnhanced
+from critic import StateNetworkCritic, LSTMCritic, DecoderCritic
 
 
 class ReplayBuffer:
@@ -39,7 +39,7 @@ class NCO(nn.Module):
         self.actor_optimizer = optim.Adam(self.actor.parameters(), lr=1e-4)
         self.critic_optimizer = optim.Adam(self.critic.parameters(), lr=1e-3)
 
-        self.replay_buffer = ReplayBuffer(capacity=1000)
+        self.replay_buffer = ReplayBuffer(capacity=20)
 
         self.actor_loss_list = []
         self.critic_loss_list = []
@@ -55,7 +55,7 @@ class NCO(nn.Module):
             action = torch.argmax(probs_noised, dim=-1)
         else:
             action = torch.argmax(probs, dim=-1)
-        return action
+        return action   # batch_size * max_sfc_length
 
     def get_sfc_placement(self, state, exploration=False):
         _, probs = self.actor([state])
@@ -118,26 +118,34 @@ class NCO(nn.Module):
             logits, _ = self.actor(states)   # batch_size * max_sfc_length * node_num
             log_probs = F.log_softmax(logits, dim=-1)
             log_pi_action = log_probs.gather(dim=-1, index=actions.unsqueeze(-1)).squeeze(-1)  # get the log probs for the actions: batch_size * max_sfc_length
+            log_pi_action = log_pi_action.sum(dim=1, keepdim=True)
 
             with torch.no_grad():
                 baseline = self.critic(states)
-            rewards = (rewards - rewards.mean()) / (rewards.std() + 1e-8)   # rewards normalization
+
             advantage = rewards - baseline
+            advantage = (advantage - advantage.mean()) / (advantage.std() + 1e-8)
+
+            rewards = (rewards - rewards.mean()) / (rewards.std() + 1e-8)  # rewards normalization
 
             actor_loss = -(advantage * log_pi_action).mean()
 
             self.actor_optimizer.zero_grad()
             actor_loss.backward()
-            nn.utils.clip_grad_norm_(self.actor.parameters(), max_norm=1)
+            # nn.utils.clip_grad_norm_(self.actor.parameters(), max_norm=1)
             self.actor_optimizer.step()
             self.actor_loss_list.append(actor_loss.item())
 
             values = self.critic(states)
             critic_loss = F.mse_loss(values, rewards)
 
+            # next_values = self.critic(next_states)
+            # values = rewards + 0.9 * next_values * (1 - dones)
+            # critic_loss = F.mse_loss(values, rewards)
+
             self.critic_optimizer.zero_grad()
             critic_loss.backward()
-            nn.utils.clip_grad_norm_(self.critic.parameters(), max_norm=1)
+            # nn.utils.clip_grad_norm_(self.critic.parameters(), max_norm=1)
             self.critic_optimizer.step()
             self.critic_loss_list.append(critic_loss.item())
 
@@ -167,12 +175,12 @@ class EnhancedNCO(nn.Module):
         super().__init__()
 
         self.actor = StateNetworkActor(num_nodes, node_state_dim, vnf_state_dim).to(device)
-        self.critic = LSTMCriticEnhanced(node_state_dim, vnf_state_dim, num_nodes, hidden_dim=64).to(device)
+        self.critic = StateNetworkCritic(node_state_dim, vnf_state_dim, num_nodes, hidden_dim=64).to(device)
 
         self.actor_optimizer = optim.Adam(self.actor.parameters(), lr=1e-4)
         self.critic_optimizer = optim.Adam(self.critic.parameters(), lr=1e-3)
 
-        self.replay_buffer = ReplayBuffer(capacity=1000)
+        self.replay_buffer = ReplayBuffer(capacity=20)
 
         self.actor_loss_list = []
         self.critic_loss_list = []
@@ -251,26 +259,32 @@ class EnhancedNCO(nn.Module):
             logits, _ = self.actor(states)   # batch_size * max_sfc_length * node_num
             log_probs = F.log_softmax(logits, dim=-1)
             log_pi_action = log_probs.gather(dim=-1, index=actions.unsqueeze(-1)).squeeze(-1)  # get the log probs for the actions: batch_size * max_sfc_length
+            log_pi_action = log_pi_action.sum(dim=1, keepdim=True)
 
             with torch.no_grad():
                 baseline = self.critic(states)
-            rewards = (rewards - rewards.mean()) / (rewards.std() + 1e-8)  # rewards normalization
+
             advantage = rewards - baseline
+            advantage = (advantage - advantage.mean()) / (advantage.std() + 1e-8)
+
+            rewards = (rewards - rewards.mean()) / (rewards.std() + 1e-8)  # rewards normalization
 
             actor_loss = -(advantage * log_pi_action).mean()
 
             self.actor_optimizer.zero_grad()
             actor_loss.backward()
-            nn.utils.clip_grad_norm_(self.actor.parameters(), max_norm=1)
+            # nn.utils.clip_grad_norm_(self.actor.parameters(), max_norm=1)
             self.actor_optimizer.step()
             self.actor_loss_list.append(actor_loss.item())
 
-            values = self.critic(states)
+            # values = self.critic(states)
+            next_values = self.critic(next_states)
+            values = rewards + 0.9 * next_values * (1 - dones)
             critic_loss = F.mse_loss(values, rewards)
 
             self.critic_optimizer.zero_grad()
             critic_loss.backward()
-            nn.utils.clip_grad_norm_(self.critic.parameters(), max_norm=1)
+            # nn.utils.clip_grad_norm_(self.critic.parameters(), max_norm=1)
             self.critic_optimizer.step()
             self.critic_loss_list.append(critic_loss.item())
 
@@ -305,7 +319,7 @@ class ActorEnhancedNCO(nn.Module):
         self.actor_optimizer = optim.Adam(self.actor.parameters(), lr=1e-4)
         self.critic_optimizer = optim.Adam(self.critic.parameters(), lr=1e-3)
 
-        self.replay_buffer = ReplayBuffer(capacity=1000)
+        self.replay_buffer = ReplayBuffer(capacity=20)
 
         self.actor_loss_list = []
         self.critic_loss_list = []
@@ -384,11 +398,15 @@ class ActorEnhancedNCO(nn.Module):
             logits, _ = self.actor(states)   # batch_size * max_sfc_length * node_num
             log_probs = F.log_softmax(logits, dim=-1)
             log_pi_action = log_probs.gather(dim=-1, index=actions.unsqueeze(-1)).squeeze(-1)  # get the log probs for the actions: batch_size * max_sfc_length
+            log_pi_action = log_pi_action.sum(dim=1, keepdim=True)
 
             with torch.no_grad():
                 baseline = self.critic(states)
-            rewards = (rewards - rewards.mean()) / (rewards.std() + 1e-8)  # rewards normalization
+
             advantage = rewards - baseline
+            advantage = (advantage - advantage.mean()) / (advantage.std() + 1e-8)
+
+            rewards = (rewards - rewards.mean()) / (rewards.std() + 1e-8)  # rewards normalization
 
             actor_loss = -(advantage * log_pi_action).mean()
 
@@ -438,7 +456,7 @@ class CriticEnhancedNCO(nn.Module):
         self.actor_optimizer = optim.Adam(self.actor.parameters(), lr=1e-4)
         self.critic_optimizer = optim.Adam(self.critic.parameters(), lr=1e-3)
 
-        self.replay_buffer = ReplayBuffer(capacity=1000)
+        self.replay_buffer = ReplayBuffer(capacity=20)
 
         self.actor_loss_list = []
         self.critic_loss_list = []
@@ -528,8 +546,11 @@ class CriticEnhancedNCO(nn.Module):
 
             with torch.no_grad():
                 baseline = self.critic(states, actions)
-            rewards = (rewards - rewards.mean()) / (rewards.std() + 1e-8)  # rewards normalization
+
             advantage = rewards - baseline
+            advantage = (advantage - advantage.mean()) / (advantage.std() + 1e-8)
+
+            rewards = (rewards - rewards.mean()) / (rewards.std() + 1e-8)  # rewards normalization
 
             actor_loss = -(advantage * log_pi_action).mean()
 
@@ -582,7 +603,7 @@ class DDPG:
         self.target_critic.load_state_dict(self.critic.state_dict())
         self.critic_optimizer = optim.Adam(self.critic.parameters(), lr=1e-3)
 
-        self.replay_buffer = ReplayBuffer(capacity=1000)
+        self.replay_buffer = ReplayBuffer(capacity=20)
 
         self.actor_loss_list = []
         self.critic_loss_list = []
@@ -720,7 +741,7 @@ class DRLSFCP:
         self.critic = DecoderCritic(net_state_dim, vnf_state_dim).to(device)
         self.critic_optimizer = optim.Adam(self.critic.parameters(), lr=1e-4)
 
-        self.replay_buffer = ReplayBuffer(capacity=1000)
+        self.replay_buffer = ReplayBuffer(capacity=20)
 
         self.actor_loss_list = []
         self.critic_loss_list = []

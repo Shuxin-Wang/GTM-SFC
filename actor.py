@@ -10,14 +10,21 @@ class StateNetworkActor(nn.Module):
         super().__init__()
         self.num_nodes = num_nodes
         self.state_network = StateNetwork(net_state_dim, vnf_state_dim)
-        # self.state_l1 = nn.Linear(num_nodes + config.MAX_SFC_LENGTH + 2, hidden_dim)
-        # self.node_fc = nn.Linear(input_dim, output_dim)
+        self.fc = nn.Linear(vnf_state_dim, 64)  # share linear layer
+        self.cross_attn = nn.MultiheadAttention(embed_dim=64, num_heads=4, batch_first=True)
+        self.l_out = nn.Linear(64, num_nodes)
 
     def forward(self, state, mask=None):
         state_attention = self.state_network(state, mask)
         net_tokens = state_attention[:, :self.num_nodes, :] # batch_size * num_nodes * vnf_state_dim
         sfc_tokens = state_attention[:, self.num_nodes:, :] # batch_size * max_sfc_length * vnf_state_dim
-        logits = torch.matmul(sfc_tokens, net_tokens.transpose(1, 2))
+        net_tokens = self.fc(net_tokens)    # batch_size * num_nodes * hidden_dim
+        sfc_tokens = self.fc(sfc_tokens)    # batch_size * max_sfc_length * hidden_dim
+
+        # attn_output, _ = self.cross_attn(query=sfc_tokens, key=net_tokens, value=net_tokens)
+        # logits = self.l_out(attn_output)
+
+        logits = torch.matmul(sfc_tokens, net_tokens.transpose(1, 2))   # batch_size * max_sfc_length * num_nodes
         probs = F.softmax(logits, dim=-1)
         return logits, probs
 
