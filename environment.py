@@ -204,33 +204,55 @@ class Environment:
         return edge_index
 
     # aggregate node features and link features to generate net states: node_number * max_state_len
+    # def aggregate_features(self):
+    #     G = self.graph
+    #
+    #     degrees = dict(nx.degree(G))
+    #     max_degree_node = max(degrees, key=degrees.get)
+    #     max_degree = int(degrees[max_degree_node])
+    #
+    #     num_node_features = len(self.node_properties[0])
+    #     num_link_features = len(self.link_properties[0])
+    #     max_state_len = (1 + max_degree) * num_node_features + max_degree * num_link_features
+    #
+    #     aggregate_features = []
+    #     for node in G.nodes():
+    #         features = [self.node_properties[int(node)]['capacity']]
+    #         for neighbor in G.neighbors(node):
+    #             if int(node) > int(neighbor):  # adjust nodes order to select link
+    #                 index = self.link_index[(neighbor, node)]
+    #             else:
+    #                 index = self.link_index[(node, neighbor)]
+    #             # add neighbor node and connected link properties to state
+    #             features.append(self.node_properties[int(neighbor)]['capacity'])
+    #             features.append(self.link_properties[index]['bandwidth'])
+    #             features.append(self.link_properties[index]['latency'])
+    #         # net_state padding
+    #         padding_length = max_state_len - len(features)
+    #         features = features + [0] * padding_length
+    #         aggregate_features.append(features)
+    #     aggregate_features = torch.tensor(aggregate_features, dtype=torch.float32)
+    #     return aggregate_features
+
+    # aggregate node features and link features to generate net states: [node_state, neighbor_node_state, neighbor_link_state]
     def aggregate_features(self):
         G = self.graph
-
-        degrees = dict(nx.degree(G))
-        max_degree_node = max(degrees, key=degrees.get)
-        max_degree = int(degrees[max_degree_node])
-
-        num_node_features = len(self.node_properties[0])
-        num_link_features = len(self.link_properties[0])
-        max_state_len = (1 + max_degree) * num_node_features + max_degree * num_link_features
-
         aggregate_features = []
         for node in G.nodes():
-            features = [self.node_properties[int(node)]['capacity']]
+            features = np.zeros(4)
+            features[0] = self.node_properties[int(node)]['capacity']
+            num_neighbor = len(list(G.neighbors(node)))
             for neighbor in G.neighbors(node):
                 if int(node) > int(neighbor):  # adjust nodes order to select link
                     index = self.link_index[(neighbor, node)]
                 else:
                     index = self.link_index[(node, neighbor)]
                 # add neighbor node and connected link properties to state
-                features.append(self.node_properties[int(neighbor)]['capacity'])
-                features.append(self.link_properties[index]['bandwidth'])
-                features.append(self.link_properties[index]['latency'])
-            # net_state padding
-            padding_length = max_state_len - len(features)
-            features = features + [0] * padding_length
-            aggregate_features.append(features)
+                features[1] += self.node_properties[int(neighbor)]['capacity']
+                features[2] += self.link_properties[index]['bandwidth']
+                features[3] += self.link_properties[index]['latency']
+            features[1:] /= num_neighbor
+            aggregate_features.append(features.tolist())
         aggregate_features = torch.tensor(aggregate_features, dtype=torch.float32)
         return aggregate_features
 
