@@ -63,7 +63,7 @@ class Environment:
         self.sfc_placed_num = 0
 
         self.lambda_placement = 20
-        self.lambda_power = 10
+        self.lambda_power = 5
         self.lambda_capacity = 0.25
         self.lambda_bandwidth = 0.01
         self.lambda_latency = 0.01
@@ -99,6 +99,8 @@ class Environment:
         self.sfc_path.append(self.find_route(source_node, placement[0]))    # source node -> vnf 0
         for i in range(len(placement) - 1):
             route = self.find_route(placement[i], placement[i + 1])
+            if not route:
+                self.vnf_placement[i + 1:] = 0   # vnf placement failed
             self.sfc_path.append(route)
         self.sfc_path.append(self.find_route(placement[-1], dest_node)) # vnf N -> dest node
 
@@ -109,7 +111,8 @@ class Environment:
 
     # compute the overall latency and exceeded latency of a path
     def compute_latency(self, path, sfc):
-        for route in path:
+        path_length = len(path)
+        for i, route in enumerate(path):
             if route:   # if path exist, compute latency
                 for i in range(len(route) - 1):
                     if int(route[i]) > int(route[i+1]): # adjust nodes order to select link
@@ -118,16 +121,17 @@ class Environment:
                         index = self.link_index[(route[i], route[i+1])]
                     self.sfc_latency += self.link_properties[index]['latency']
             else:
-                self.sfc_latency += self.path_penalty
+                self.exceeded_latency += self.path_penalty * (path_length - i)
                 continue
         for vnf in sfc:
             self.latency_requirement += self.vnf_properties[vnf]['latency']
-        self.exceeded_latency = self.sfc_latency - self.latency_requirement
+        self.exceeded_latency += self.sfc_latency - self.latency_requirement
 
     # compute and update bandwidth occupancy
     def compute_bandwidth(self, sfc, path):
         self.bandwidth_requirement = max([self.vnf_properties[vnf]['bandwidth'] for vnf in sfc])
-        for route in path:
+        path_length = len(path)
+        for i, route in enumerate(path):
             if route:  # if path exist, update bandwidth
                 for i in range(len(route) - 1):
                     if int(route[i]) > int(route[i + 1]):  # adjust nodes order to select link
@@ -137,8 +141,9 @@ class Environment:
                     self.link_used[index] += self.bandwidth_requirement
                     self.link_occupied[index] = 1
             else:
-                continue
-        self.exceeded_bandwidth = sum(self.link_occupied \
+                self.exceeded_bandwidth += self.path_penalty * (path_length - i)
+                break
+        self.exceeded_bandwidth += sum(self.link_occupied \
                                   * (self.link_used - [link['bandwidth'] for link in self.link_properties]))
 
     # compute sfc power consumption, update node occupancy
@@ -202,37 +207,6 @@ class Environment:
             edge_list).t().contiguous()  # shape: 2 * num_edges, represent for the connection relationship
         edge_index = to_undirected(edge_index)
         return edge_index
-
-    # aggregate node features and link features to generate net states: node_number * max_state_len
-    # def aggregate_features(self):
-    #     G = self.graph
-    #
-    #     degrees = dict(nx.degree(G))
-    #     max_degree_node = max(degrees, key=degrees.get)
-    #     max_degree = int(degrees[max_degree_node])
-    #
-    #     num_node_features = len(self.node_properties[0])
-    #     num_link_features = len(self.link_properties[0])
-    #     max_state_len = (1 + max_degree) * num_node_features + max_degree * num_link_features
-    #
-    #     aggregate_features = []
-    #     for node in G.nodes():
-    #         features = [self.node_properties[int(node)]['capacity']]
-    #         for neighbor in G.neighbors(node):
-    #             if int(node) > int(neighbor):  # adjust nodes order to select link
-    #                 index = self.link_index[(neighbor, node)]
-    #             else:
-    #                 index = self.link_index[(node, neighbor)]
-    #             # add neighbor node and connected link properties to state
-    #             features.append(self.node_properties[int(neighbor)]['capacity'])
-    #             features.append(self.link_properties[index]['bandwidth'])
-    #             features.append(self.link_properties[index]['latency'])
-    #         # net_state padding
-    #         padding_length = max_state_len - len(features)
-    #         features = features + [0] * padding_length
-    #         aggregate_features.append(features)
-    #     aggregate_features = torch.tensor(aggregate_features, dtype=torch.float32)
-    #     return aggregate_features
 
     # aggregate node features and link features to generate net states: [node_state, neighbor_node_state, neighbor_link_state]
     def aggregate_features(self):
