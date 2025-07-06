@@ -16,6 +16,9 @@ def train(agent, env, sfc_generator, iteration):
     critic_loss_list = []
     reward_list = []
 
+    loss_threshold = 1e-3
+    window_size = 20
+
     agent_name = agent.__class__.__name__
 
     tqdm.write('-' * 20 + agent_name + ' Training Start' + '-' * 20 + '\t')
@@ -23,12 +26,18 @@ def train(agent, env, sfc_generator, iteration):
     pbar = tqdm(range(iteration), desc='Training Progress')
 
     start_time = time.time()
-    for _ in pbar:
-        agent.fill_replay_buffer(env, sfc_generator, 1)    # fill replay buffer with 50 * config.BATCH_SIZE data
-
-        agent.train(1, 20)  # episode * batch_size, update parameters for episode times per batch size
+    for e in pbar:
+        agent.fill_replay_buffer(env, sfc_generator, 20)    # fill replay buffer with n * config.BATCH_SIZE data
+        agent.train(1, batch_size=200)  # episode * batch_size, update parameters for episode times per batch size
         actor_loss_list.extend(agent.actor_loss_list)
         critic_loss_list.extend(agent.critic_loss_list)
+
+        if len(actor_loss_list) >= window_size:
+            actor_var = torch.var(torch.tensor(actor_loss_list[-window_size:]))
+            critic_var = torch.var(torch.tensor(critic_loss_list[-window_size:]))
+            if actor_var < loss_threshold and critic_var < loss_threshold:
+                print(f"Early stop triggered at epoch {e} (losses stable)")
+                break
 
         sfc_list = sfc_generator.get_sfc_batch()
         sfc_state_list = sfc_generator.get_sfc_states()
@@ -69,7 +78,7 @@ def train(agent, env, sfc_generator, iteration):
     print('Agent saved to {}'.format(agent_file_path))
 
 
-def evaluate(agent_name_list, env, sfc_generator, sfc_length_list, episodes=50):
+def evaluate(agent_name_list, env, sfc_generator, sfc_length_list, episodes=100):
     agent_dict = {}
     for agent_name in agent_name_list:
         agent_file_path = agent_path + agent_name + '.pth'
@@ -102,13 +111,13 @@ def evaluate(agent_name_list, env, sfc_generator, sfc_length_list, episodes=50):
             sfc_state_list = sfc_generator.get_sfc_states()
             source_dest_node_pairs = sfc_generator.get_source_dest_node_pairs()
             for agent in agent_dict.values():
-                env.clear()
                 agent.test(env, sfc_list, sfc_state_list, source_dest_node_pairs)
                 agent.placement_reward_list.append(np.mean(env.placement_reward_list))    # episode avg reward
                 agent.power_consumption_list.append(np.mean(env.power_consumption_list))
                 agent.exceeded_penalty_list.append(np.mean(env.exceeded_penalty_list))
                 agent.reward_list.append(np.mean(env.reward_list))
                 agent.acceptance_ratio_list.append(env.sfc_placed_num / sfc_generator.batch_size)
+                print(agent.__class__.__name__, env.vnf_placement)
 
         for agent in agent_dict.values():
             agent.avg_placement_reward_list.append(np.mean(agent.placement_reward_list))    # iteration avg reward
@@ -179,15 +188,15 @@ if __name__ == '__main__':
     # evaluate
     agent_path = 'save/model/'
     agent_name_list = [
+        'EnhancedNCO',
         'NCO',
         # 'DRLSFCP',
         # 'ActorEnhancedNCO',
         # 'CriticEnhancedNCO',
-        'EnhancedNCO',
         # 'DDPG'
         ]
     sfc_length_list = [8, 10, 12, 16, 20, 24]   # test agent placement under different max sfc length
-    evaluate(agent_name_list, env, sfc_generator, sfc_length_list, episodes=10)
+    evaluate(agent_name_list, env, sfc_generator, sfc_length_list, episodes=1)
 
-    plot.show_train_result('save/result/train', agent_name_list)
+    # plot.show_train_result('save/result/train', agent_name_list)
     plot.show_evaluate_result('save/result/evaluate', agent_name_list)
