@@ -8,6 +8,7 @@ def show_train_result(dir_path, agent_name_list):
 
     df_list = []
     reward_list = []
+    avg_acceptance_ratio_list = []
     actor_loss_list = []
     critic_loss_list = []
 
@@ -16,6 +17,7 @@ def show_train_result(dir_path, agent_name_list):
         df = pd.read_csv(csv_file_path)
         df_list.append(df)
         reward_list.append(df['Reward'])
+        avg_acceptance_ratio_list.append(df['Acceptance Ratio'])
         actor_loss_list.append(df['Actor Loss'])
         critic_loss_list.append(df['Critic Loss'])
 
@@ -55,6 +57,17 @@ def show_train_result(dir_path, agent_name_list):
         sns.lineplot(data=df, x='Steps', y='Smoothed Reward', color=colors[i],
                      label=agent_name_list[i] + ' Smoothed Reward')
     plt.title('Reward Curve with Smoothing')
+    plt.legend()
+
+    plt.figure(figsize=(10, 6))
+    for i in range(agent_num):
+        df = pd.DataFrame({'Steps': steps, 'Acceptance Ratio': avg_acceptance_ratio_list[i]})
+        df['Smoothed Acceptance Ratio'] = df['Acceptance Ratio'].rolling(window=window_size, center=True).mean()
+        sns.lineplot(data=df, x='Steps', y='Acceptance Ratio', color=colors[i], alpha=0.2,
+                     label=agent_name_list[i] + ' Acceptance Ratio')
+        sns.lineplot(data=df, x='Steps', y='Smoothed Acceptance Ratio', color=colors[i],
+                     label=agent_name_list[i] + ' Smoothed Acceptance Ratio')
+    plt.title('Acceptance Ratio Curve with Smoothing')
     plt.legend()
 
     plt.show()
@@ -102,6 +115,16 @@ def show_evaluate_result(dir_path, agent_name_list):
 
         plt.xlabel('Max SFC Length', fontsize=12)
         plt.ylabel(metric, fontsize=12)
+        if metric == 'Average Acceptance Ratio':
+            plt.ylim(0.5, 0.95)
+        if metric == 'Average Placement Reward':
+            plt.ylim(2100, 3500)
+        if metric == 'Average Episode Reward':
+            plt.ylim(36000, 48000)
+        if metric == 'Average Exceeded Penalty':
+            plt.ylim(200, 900)
+        if metric == 'Average Power Consumption':
+            plt.ylim(100, 310)
         plt.xticks(index + bar_width, labels=labels)
         plt.legend()
         plt.grid(axis='y', linestyle='--', alpha=0.3)
@@ -113,10 +136,10 @@ def show_evaluate_result(dir_path, agent_name_list):
 if __name__ == '__main__':
     agent_name_list = [
         'NCO',
+        'DRLSFCP',
         'EnhancedNCO',
         'PPO',
-        # 'DRLSFCP',
         # 'DDPG'
         ]
-    show_train_result('save/result/train', agent_name_list)
+    # show_train_result('save/result/train', agent_name_list)
     show_evaluate_result('save/result/evaluate', agent_name_list)
