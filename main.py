@@ -164,9 +164,9 @@ if __name__ == '__main__':
 
     # train
     agent_list = [
-        NCO(vnf_state_dim, env.num_nodes, device),
-        EnhancedNCO(env.num_nodes, node_state_dim, vnf_state_dim, device),
-        PPO(env.num_nodes, node_state_dim, vnf_state_dim, device),
+        # NCO(vnf_state_dim, env.num_nodes, device),
+        # EnhancedNCO(env.num_nodes, node_state_dim, vnf_state_dim, device),
+        # PPO(env.num_nodes, node_state_dim, vnf_state_dim, device),
         # DDPG(env.num_nodes, node_state_dim, vnf_state_dim, device),
         DRLSFCP(env.num_nodes, node_state_dim, vnf_state_dim, device=device)
     ]

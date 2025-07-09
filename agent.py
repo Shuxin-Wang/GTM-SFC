@@ -6,6 +6,7 @@ import torch.optim as optim
 from collections import deque
 import networkx as nx
 from openpyxl.descriptors import NoneSet
+from torch.utils.hipify.hipify_python import value
 from torch_geometric.data import Data
 import config
 import environment
@@ -381,7 +382,7 @@ class PPO(nn.Module):
             env.clear()
         return self.avg_episode_reward / episode, self.avg_acceptance_ratio / sfc_generator.batch_size / episode
 
-    def train(self, episode=1, batch_size=200, discount=0.99, clip_epsilon=0.2, ppo_epochs=5):
+    def train(self, episode=1, batch_size=200, discount=0.99, clip_epsilon=0.2, ppo_epochs=5, gae_lambda=0.95):
 
         self.actor_loss_list.clear()
         self.critic_loss_list.clear()
@@ -389,60 +390,140 @@ class PPO(nn.Module):
         avg_actor_loss = 0
         avg_critic_loss = 0
 
-        for e in range(episode):
-            batch_states, batch_actions, batch_rewards, batch_next_states, batch_dones = zip(
-                *self.replay_buffer.sample(batch_size))
-            states = list(batch_states)  # state = [(net_state, sfc_state), (net_state, sfc_state)...]
-            actions = torch.stack(batch_actions, dim=0).squeeze(1).to(
-                self.device)  # action = torch.tensor((action), (action)...)) batch_size * max_sfc_length
-            rewards = torch.tensor(batch_rewards, dtype=torch.float32).unsqueeze(1).to(self.device)
-            next_states = list(batch_next_states)
-            dones = torch.tensor(batch_dones, dtype=torch.float32).unsqueeze(1).to(self.device)
+        # TD error
+        # for e in range(episode):
+        #     batch_states, batch_actions, batch_rewards, batch_next_states, batch_dones = zip(
+        #         *self.replay_buffer.sample(batch_size))
+        #     states = list(batch_states)  # state = [(net_state, sfc_state), (net_state, sfc_state)...]
+        #     actions = torch.stack(batch_actions, dim=0).squeeze(1).to(
+        #         self.device)  # action = torch.tensor((action), (action)...)) batch_size * max_sfc_length
+        #     rewards = torch.tensor(batch_rewards, dtype=torch.float32).unsqueeze(1).to(self.device)
+        #     next_states = list(batch_next_states)
+        #     dones = torch.tensor(batch_dones, dtype=torch.float32).unsqueeze(1).to(self.device)
+        #
+        #     rewards = rewards / 10000
+        #
+        #     with torch.no_grad():
+        #         next_values = self.critic(next_states)
+        #         target_values = rewards + discount * next_values * (1 - dones)
+        #         baseline = self.critic(states)
+        #         advantage = target_values - baseline
+        #         advantage = (advantage - advantage.mean()) / (advantage.std() + 1e-8)
+        #
+        #     with torch.no_grad():
+        #         old_logits, _ = self.actor(states)
+        #         old_log_probs = F.log_softmax(old_logits, dim=-1)
+        #         old_log_pi_action = old_log_probs.gather(dim=-1, index=actions.unsqueeze(-1)).squeeze(-1)
+        #         old_log_pi_action = old_log_pi_action.sum(dim=1, keepdim=True)
+        #
+        #     for _ in range(ppo_epochs):
+        #         logits, _ = self.actor(states)
+        #         log_probs = F.log_softmax(logits, dim=-1)
+        #         log_pi_action = log_probs.gather(dim=-1, index=actions.unsqueeze(-1)).squeeze(-1)
+        #         log_pi_action = log_pi_action.sum(dim=1, keepdim=True)
+        #
+        #         ratio = torch.exp(log_pi_action - old_log_pi_action)
+        #
+        #         v1 = ratio * advantage
+        #         v2 = torch.clamp(ratio, 1 - clip_epsilon, 1 + clip_epsilon) * advantage
+        #         actor_loss = -torch.min(v1, v2).mean()
+        #
+        #         self.actor_optimizer.zero_grad()
+        #         actor_loss.backward()
+        #         nn.utils.clip_grad_norm_(self.actor.parameters(), max_norm=1)
+        #         self.actor_optimizer.step()
+        #         avg_actor_loss += actor_loss.item()
+        #
+        #         current_values = self.critic(states)
+        #         critic_loss = F.mse_loss(target_values, current_values)
+        #
+        #         self.critic_optimizer.zero_grad()
+        #         critic_loss.backward()
+        #         nn.utils.clip_grad_norm_(self.critic.parameters(), max_norm=1)
+        #         self.critic_optimizer.step()
+        #         avg_critic_loss += critic_loss.item()
+        #
+        #     self.actor_loss_list.append(avg_actor_loss / ppo_epochs)
+        #     self.critic_loss_list.append(avg_critic_loss / ppo_epochs)
 
-            rewards = rewards / 10000
+        # GAE
+        len_traj = config.BATCH_SIZE
+        num_traj = int(len(self.replay_buffer.buffer) / len_traj)
+
+        buffer_data = list(self.replay_buffer.buffer)
+
+        all_states = []
+        all_actions = []
+        all_advantages = []
+        all_targets = []
+
+        for i in range(num_traj):
+            traj = buffer_data[i * len_traj : (i + 1) * len_traj]
+            states, actions, rewards, next_states, dones = zip(*traj)
+
+            states = list(states)
+            next_states = list(next_states)
+            actions = torch.stack(actions, dim=0).squeeze(1).to(self.device)  # len_traj *  max_sfc_length
+            rewards = torch.tensor(rewards, dtype=torch.float32, device=self.device) / 10000  # normalize
+            dones = torch.tensor(dones, dtype=torch.float32, device=self.device)
 
             with torch.no_grad():
-                next_values = self.critic(next_states)
-                target_values = rewards + discount * next_values * (1 - dones)
-                baseline = self.critic(states)
-                advantage = target_values - baseline
-                advantage = (advantage - advantage.mean()) / (advantage.std() + 1e-8)
+                values = self.critic(states).squeeze(-1)    # len_traj
+                next_values = self.critic(next_states).squeeze(-1)  # len_traj
 
-            with torch.no_grad():
-                old_logits, _ = self.actor(states)
-                old_log_probs = F.log_softmax(old_logits, dim=-1)
-                old_log_pi_action = old_log_probs.gather(dim=-1, index=actions.unsqueeze(-1)).squeeze(-1)
-                old_log_pi_action = old_log_pi_action.sum(dim=1, keepdim=True)
+            deltas = rewards + discount * next_values * (1 - dones) - values
+            advantages = torch.zeros_like(rewards)
+            gae = 0
+            for t in reversed(range(len_traj)):
+                gae = deltas[t] + discount * gae_lambda * (1 - dones[t]) * gae
+                advantages[t] = gae
+            advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
+            targets = advantages + values   # len_traj
 
-            for _ in range(ppo_epochs):
-                logits, _ = self.actor(states)
-                log_probs = F.log_softmax(logits, dim=-1)
-                log_pi_action = log_probs.gather(dim=-1, index=actions.unsqueeze(-1)).squeeze(-1)
-                log_pi_action = log_pi_action.sum(dim=1, keepdim=True)
+            all_states.extend(states)
+            all_actions.extend(actions)
+            all_advantages.append(advantages)
+            all_targets.append(targets)
 
-                ratio = torch.exp(log_pi_action - old_log_pi_action)
+        all_actions = torch.cat(all_actions, dim=0).view(batch_size, -1) # batch_size * max_sfc_length
+        all_advantages = torch.cat(all_advantages, dim=0).unsqueeze(1)  # batch_size * 1
+        all_targets = torch.cat(all_targets, dim=0).unsqueeze(1)    # batch_size * 1
 
-                v1 = ratio * advantage
-                v2 = torch.clamp(ratio, 1 - clip_epsilon, 1 + clip_epsilon) * advantage
-                actor_loss = -torch.min(v1, v2).mean()
+        with torch.no_grad():
+            old_logits, _ = self.actor(all_states)
+            old_log_probs = F.log_softmax(old_logits, dim=-1)
+            old_log_pi_action = old_log_probs.gather(dim=-1, index=all_actions.unsqueeze(-1)).squeeze(-1)
+            old_log_pi_action = old_log_pi_action.sum(dim=1, keepdim=True)
 
-                self.actor_optimizer.zero_grad()
-                actor_loss.backward()
-                nn.utils.clip_grad_norm_(self.actor.parameters(), max_norm=1)
-                self.actor_optimizer.step()
-                avg_actor_loss += actor_loss.item()
+        for _ in range(ppo_epochs):
+            logits, _ = self.actor(all_states)
+            log_probs = F.log_softmax(logits, dim=-1)
+            log_pi_action = log_probs.gather(dim=-1, index=all_actions.unsqueeze(-1)).squeeze(-1)
+            log_pi_action = log_pi_action.sum(dim=1, keepdim=True)
 
-                current_values = self.critic(states)
-                critic_loss = F.mse_loss(target_values, current_values)
+            ratio = torch.exp(log_pi_action - old_log_pi_action)
 
-                self.critic_optimizer.zero_grad()
-                critic_loss.backward()
-                nn.utils.clip_grad_norm_(self.critic.parameters(), max_norm=1)
-                self.critic_optimizer.step()
-                avg_critic_loss += critic_loss.item()
+            v1 = ratio * all_advantages
+            v2 = torch.clamp(ratio, 1 - clip_epsilon, 1 + clip_epsilon) * all_advantages
+            actor_loss = -torch.min(v1, v2).mean()
 
-            self.actor_loss_list.append(avg_actor_loss / ppo_epochs)
-            self.critic_loss_list.append(avg_critic_loss / ppo_epochs)
+            self.actor_optimizer.zero_grad()
+            actor_loss.backward()
+            nn.utils.clip_grad_norm_(self.actor.parameters(), max_norm=1)
+            self.actor_optimizer.step()
+            avg_actor_loss += actor_loss.item()
+
+            current_values = self.critic(all_states)
+            critic_loss = F.mse_loss(all_targets, current_values)
+
+            self.critic_optimizer.zero_grad()
+            critic_loss.backward()
+            nn.utils.clip_grad_norm_(self.critic.parameters(), max_norm=1)
+            self.critic_optimizer.step()
+            avg_critic_loss += critic_loss.item()
+
+        self.actor_loss_list.append(avg_actor_loss / ppo_epochs)
+        self.critic_loss_list.append(avg_critic_loss / ppo_epochs)
 
     def test(self, env, sfc_list, sfc_state_list, source_dest_node_pairs):
         self.avg_episode_reward = 0
