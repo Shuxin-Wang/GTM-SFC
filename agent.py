@@ -214,16 +214,11 @@ class EnhancedNCO(nn.Module):
         self.avg_sfc_latency = 0
         self.avg_node_resource_utilization = 0
 
-    def select_action(self, logits, exploration=True, noise_scale=1, noise_decay=0.95):
-        # if exploration:
-        #     dist = torch.distributions.Categorical(probs=probs)
-        #     action = dist.sample()
-        # else:
-        #     action = torch.argmax(probs, dim=-1)
-        logits = (logits - logits.mean()) / (logits.std() + 1e-8)
+    def select_action(self, logits, exploration=True):
         if exploration:
-            logits += torch.randn_like(logits) * noise_scale * (noise_decay ** self.episode)
-            action = torch.argmax(logits, dim=-1)
+            probs = F.softmax(logits, dim=-1)
+            dist = torch.distributions.Categorical(probs=probs)
+            action = dist.sample()
         else:
             action = torch.argmax(logits, dim=-1)
         return action
@@ -308,10 +303,8 @@ class EnhancedNCO(nn.Module):
             with torch.no_grad():
                 baseline = self.critic(states)
                 advantage = target_values - baseline  # 使用完整的 TD Advantage
-                # advantage = (advantage - advantage.mean()) / (advantage.std() + 1e-8)  # 标准化
+                advantage = (advantage - advantage.mean()) / (advantage.std() + 1e-8)  # 标准化
 
-            # entropy = -torch.sum(probs * torch.log(probs + 1e-8), dim=-1)  # shape: [batch, max_sfc_length]
-            # entropy_loss = entropy.mean()
             actor_loss = -(advantage * log_pi_action).mean()
 
             self.actor_optimizer.zero_grad()

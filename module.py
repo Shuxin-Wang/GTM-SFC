@@ -131,7 +131,7 @@ class StateNetwork(nn.Module):
         V = self.value(batch_net_state) # batch_size * num_nodes * net_state_dim
 
         scores = torch.matmul(Q, K.transpose(1, 2)) / (self.net_state_dim ** 0.5) # batch_size * num_nodes * num_nodes
-        attn_weights = torch.softmax(scores, dim=-1)    # batch_size * num_nodes * net_state_dim
+        attn_weights = torch.softmax(scores, dim=-1)    # batch_size * num_nodes * num_nodes
         batch_net_state = torch.matmul(attn_weights, V) # batch_size * num_nodes * net_state_dim
         batch_net_state = self.net_linear(batch_net_state)  # batch_size * num_nodes * hidden_dim
 
