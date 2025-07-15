@@ -149,7 +149,6 @@ def evaluate(agent_path, agent_name_list, env, sfc_generator, batch_size_list, e
         df.to_csv(csv_file_path, index=False)
         print('Evaluation results saved to {}'.format(csv_file_path))
 
-
 if __name__ == '__main__':
     if torch.cuda.is_available():
         device = torch.device('cuda')
@@ -158,6 +157,7 @@ if __name__ == '__main__':
 
     # initialization
     G = nx.read_graphml('graph/Cogentco.graphml')
+    # G = nx.read_graphml('graph/Chinanet.graphml')
     env = environment.Environment(G)
     sfc_generator = SFCBatchGenerator(config.BATCH_SIZE, config.MIN_SFC_LENGTH, config.MAX_SFC_LENGTH,
                                           config.NUM_VNF_TYPES, env.num_nodes)
@@ -173,10 +173,10 @@ if __name__ == '__main__':
 
     # train
     agent_list = [
-        NCO(vnf_state_dim, env.num_nodes, device),
-        DRLSFCP(env.num_nodes, node_state_dim, vnf_state_dim, device=device),
+        # NCO(vnf_state_dim, env.num_nodes, device),
+        # DRLSFCP(env.num_nodes, node_state_dim, vnf_state_dim, device=device),
         EnhancedNCO(env.num_nodes, node_state_dim, vnf_state_dim, device),
-        PPO(env.num_nodes, node_state_dim, vnf_state_dim, device)
+        # PPO(env.num_nodes, node_state_dim, vnf_state_dim, device)
         # DDPG(env.num_nodes, node_state_dim, vnf_state_dim, device),
     ]
 
@@ -186,14 +186,14 @@ if __name__ == '__main__':
     # evaluate
     agent_path = 'save/model/'
     agent_name_list = [
-        'DRLSFCP',
-        'NCO',
+        # 'DRLSFCP',
+        # 'NCO',
         'EnhancedNCO',
-        'PPO',
+        # 'PPO',
         # 'DDPG'
         ]
 
-    batch_size_list = [20, 40, 60, 80, 100]
+    batch_size_list = [10, 20, 30, 40, 50]
 
     evaluate(agent_path, agent_name_list, env, sfc_generator, batch_size_list, episodes=10)
 

@@ -2,6 +2,7 @@ import random
 import numpy as np
 import networkx as nx
 import torch
+from torch_geometric.nn.resolver import swish
 from torch_geometric.utils import to_undirected
 import config
 
@@ -179,7 +180,7 @@ class Environment:
                 bonus_factor += 1
             self.placement_reward = self.placement_reward * (1 + bonus_factor)
 
-        self.placement_reward = self.lambda_placement * self.placement_reward
+        self.placement_reward = self.lambda_placement * self.placement_reward * (sum(self.vnf_placement) / len(self.vnf_placement))
 
         self.power_consumption = self.lambda_power * self.power_consumption
 
@@ -251,7 +252,7 @@ class Environment:
     def step(self, sfc, placement):
         source_dest_node_pair = sfc[:2]  # sfc[0:1] is the source dest node pair
         sfc = sfc[2:]   # sfc[2:] is the sfc
-
+        # print(placement)
         self.clear_sfc()
 
         self.vnf_placement = np.zeros(len(sfc), dtype='int32')
