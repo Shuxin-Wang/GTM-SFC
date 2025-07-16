@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
+from torch_geometric.utils import to_dense_batch
 from torch_geometric.data import Batch
 from module import StateNetwork, GCNConvNet, Attention, Encoder, TransformerEncoder,GAT
 import config
@@ -13,12 +13,12 @@ class StateNetworkCritic(nn.Module):
         self.state_network = StateNetwork(num_nodes, net_state_dim, vnf_state_dim)
         self.attn = nn.Linear(num_nodes, 1)
         self.fc = nn.Sequential(
-            nn.Linear(num_nodes, hidden_dim),
+            nn.Linear(num_nodes * config.MAX_SFC_LENGTH, 512),
             nn.ReLU(),
-            nn.Linear(hidden_dim, 1)
+            nn.Linear(512, 256),
+            nn.ReLU(),
+            nn.Linear(256, 1)
         )
-        self.cross_attn = nn.MultiheadAttention(embed_dim=64, num_heads=4, batch_first=True)
-        self.l_out = nn.Linear(64, 1)
 
     def forward(self, state):
         state_attention = self.state_network(state)
@@ -27,9 +27,9 @@ class StateNetworkCritic(nn.Module):
         vnf_tokens = sfc_tokens[:, 1:-1, :]  # batch_size * max_sfc_length * hidden_dim
 
         logits = torch.matmul(vnf_tokens, net_tokens.transpose(1, 2))  # batch_size * max_sfc_length * num_nodes
-        attn_weights = torch.softmax(self.attn(logits), dim=1)  # batch_size * max_sfc_length * 1
-        weighted_sum = (logits * attn_weights).sum(dim=1)  # batch_size * num_nodes
-        q = self.fc(weighted_sum)   # batch_size * 1
+
+        logits = logits.view(logits.shape[0], -1)
+        q = self.fc(logits)
         return q
 
 class StateNetworkCriticAction(nn.Module):
@@ -61,10 +61,11 @@ class StateNetworkCriticAction(nn.Module):
         return q
 
 class LSTMCritic(nn.Module):
-    def __init__(self, num_nodes, vnf_state_dim, hidden_dim):
+    def __init__(self, node_state_dim, vnf_state_dim, num_nodes, hidden_dim):
         super().__init__()
         self.vnf_state_dim = vnf_state_dim
         self.node_embed = nn.Embedding(num_nodes, vnf_state_dim)
+        self.net_fc = nn.Linear(node_state_dim, hidden_dim)
         self.embedding = nn.Linear(vnf_state_dim, hidden_dim)
         self.encoder = nn.LSTM(
             input_size=hidden_dim,
@@ -75,7 +76,14 @@ class LSTMCritic(nn.Module):
         self.fc_out = nn.Linear(hidden_dim, 1)
 
     def forward(self, state):
-        _, sfc_state, source_dest_node_pair = zip(*state)
+        net_state, sfc_state, source_dest_node_pair = zip(*state)
+
+        net_states_list = list(net_state)
+        batch_net_state = Batch.from_data_list(net_states_list)  # net state = DataBatch(x, edge_index, batch, ptr)
+        batch_net_state, _ = to_dense_batch(batch_net_state.x,
+                                            batch_net_state.batch)  # batch_size * num_nodes * node_state_dim
+        batch_net_state = self.net_fc(batch_net_state)  # batch_size * num_nodes * hidden_dim
+
         if len(sfc_state) > 1:
             sfc_state = torch.stack(sfc_state, dim=0)
             source_dest_node_pair = torch.stack(source_dest_node_pair, dim=0).unsqueeze(2)
@@ -85,7 +93,11 @@ class LSTMCritic(nn.Module):
         source_dest_node_pair = self.node_embed(source_dest_node_pair.squeeze(-1).to(torch.long))  # batch_size * 2 * vnf_state_dim
         sfc = torch.cat((sfc_state, source_dest_node_pair), dim=1)  # batch_size * (max_sfc_length + 2) * vnf_state_dim
         embedded = self.embedding(sfc)
-        _, (h, _) = self.encoder(embedded)
+
+        encoder_input = torch.cat((embedded, batch_net_state),
+                                  dim=1)  # batch_size * (max_sfc_length + 2 + num_nodes) * hidden_dim
+
+        _, (h, _) = self.encoder(encoder_input)
         value = self.fc_out(h[-1])  # h[-1]: batch_size * 1
         return value  # batch_size * 1
 

@@ -173,10 +173,10 @@ if __name__ == '__main__':
 
     # train
     agent_list = [
-        # NCO(vnf_state_dim, env.num_nodes, device),
-        # DRLSFCP(env.num_nodes, node_state_dim, vnf_state_dim, device=device),
+        NCO(node_state_dim, vnf_state_dim, env.num_nodes, device),
+        DRLSFCP(env.num_nodes, node_state_dim, vnf_state_dim, device),
         EnhancedNCO(env.num_nodes, node_state_dim, vnf_state_dim, device),
-        # PPO(env.num_nodes, node_state_dim, vnf_state_dim, device)
+        PPO(env.num_nodes, node_state_dim, vnf_state_dim, device)
         # DDPG(env.num_nodes, node_state_dim, vnf_state_dim, device),
     ]
 
@@ -186,10 +186,10 @@ if __name__ == '__main__':
     # evaluate
     agent_path = 'save/model/'
     agent_name_list = [
-        # 'DRLSFCP',
-        # 'NCO',
+        'DRLSFCP',
+        'NCO',
         'EnhancedNCO',
-        # 'PPO',
+        'PPO',
         # 'DDPG'
         ]
 
