@@ -578,7 +578,7 @@ class DRLSFCP:
     def __init__(self,num_nodes, net_state_dim, vnf_state_dim, embedding_dim=64, device='cpu'):
         super().__init__()
         self.actor = DecoderActor(num_nodes, net_state_dim, vnf_state_dim).to(device)
-        self.actor_optimizer = optim.Adam(self.actor.parameters(), lr=1e-4)
+        self.actor_optimizer = optim.Adam(self.actor.parameters(), lr=5e-4)
         self.critic = DecoderCritic(num_nodes, net_state_dim, vnf_state_dim).to(device)
         self.critic_optimizer = optim.Adam(self.critic.parameters(), lr=5e-4)
 
