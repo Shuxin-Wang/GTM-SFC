@@ -24,14 +24,14 @@ def show_train_result(dir_path, agent_name_list):
     figure_path = 'save/result/plot/'
     colors = ['#cc7c71', '#925eb0', '#72b063', '#719aac', '#e29135']
     episode = range(len(actor_loss_list[0]))
-    window_size = 5
+    window_size = 50
 
     # Actor Loss
     plt.figure(figsize=(10, 6))
     for i in range(agent_num):
         df = pd.DataFrame({'Episode': episode, 'Actor Loss': actor_loss_list[i]})
         df['Smoothed Actor Loss'] = df['Actor Loss'].rolling(window=window_size, center=True).mean()
-        sns.lineplot(data=df, x='Episode', y='Actor Loss', color=colors[i], alpha=0.2, label=agent_name_list[i] + ' Actor Loss')
+        sns.lineplot(data=df, x='Episode', y='Actor Loss', color=colors[i], alpha=0.2, label=None)
         sns.lineplot(data=df, x='Episode', y='Smoothed Actor Loss', color=colors[i], label=agent_name_list[i] + ' Smoothed Actor Loss')
     plt.title('Actor Training Loss Curve with Smoothing')
     plt.legend()
@@ -42,7 +42,7 @@ def show_train_result(dir_path, agent_name_list):
         df = pd.DataFrame({'Episode': episode, 'Critic Loss': critic_loss_list[i]})
         df['Smoothed Critic Loss'] = df['Critic Loss'].rolling(window=window_size, center=True).mean()
         sns.lineplot(data=df, x='Episode', y='Critic Loss', color=colors[i], alpha=0.2,
-                     label=agent_name_list[i] + ' Critic Loss')
+                     label=None)
         sns.lineplot(data=df, x='Episode', y='Smoothed Critic Loss', color=colors[i],
                      label=agent_name_list[i] + ' Smoothed Critic Loss')
     plt.title('Critic Training Loss Curve with Smoothing')
@@ -57,17 +57,6 @@ def show_train_result(dir_path, agent_name_list):
         sns.lineplot(data=df, x='Episode', y='Smoothed Reward', color=colors[i],
                      label=agent_name_list[i] + ' Smoothed Reward')
     plt.title('Reward Curve with Smoothing')
-    plt.legend()
-
-    plt.figure(figsize=(10, 6))
-    for i in range(agent_num):
-        df = pd.DataFrame({'Episode': episode, 'Acceptance Ratio': avg_acceptance_ratio_list[i]})
-        df['Smoothed Acceptance Ratio'] = df['Acceptance Ratio'].rolling(window=window_size, center=True).mean()
-        sns.lineplot(data=df, x='Episode', y='Acceptance Ratio', color=colors[i], alpha=0.2,
-                     label=None)
-        sns.lineplot(data=df, x='Episode', y='Smoothed Acceptance Ratio', color=colors[i],
-                     label=agent_name_list[i] + ' Smoothed Acceptance Ratio')
-    plt.title('Acceptance Ratio Curve with Smoothing')
     plt.legend()
 
     plt.show()
@@ -117,7 +106,7 @@ def show_evaluate_result(dir_path, agent_name_list):
         plt.ylabel(metric, fontsize=12)
 
         # if metric == 'Average Acceptance Ratio':
-        #     plt.ylim(0.5, 0.95)
+        #     plt.ylim(0, 1)
         # if metric == 'Average Placement Reward':
         #     plt.ylim(2100, 3500)
         # if metric == 'Average Episode Reward':
@@ -137,11 +126,10 @@ def show_evaluate_result(dir_path, agent_name_list):
 
 if __name__ == '__main__':
     agent_name_list = [
-        'DRLSFCP',
-        'NCO',
-        'EnhancedNCO',
+        # 'NCO',
+        # 'EnhancedNCO',
+        # 'DRLSFCP',
         'PPO',
-        # 'DDPG'
         ]
-    # show_train_result('save/result/train', agent_name_list)
-    show_evaluate_result('save/result/evaluate', agent_name_list)
+    show_train_result('save/result/train', agent_name_list)
+    # show_evaluate_result('save/result/evaluate', agent_name_list)
