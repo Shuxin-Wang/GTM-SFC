@@ -1,16 +1,11 @@
 import random
-
-import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from collections import deque
-import networkx as nx
 from torch_geometric.data import Data
 import config
-import environment
-from sfc import SFCBatchGenerator
 from actor import StateNetworkActor, Seq2SeqActor, DecoderActor
 from critic import StateNetworkCritic, LSTMCritic, DecoderCritic
 
