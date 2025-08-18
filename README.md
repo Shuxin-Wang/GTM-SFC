@@ -11,7 +11,7 @@ In this paper, we propose a novel DRL approach based on **Proximal Policy Optimi
 - Python 3.9.21
 - CUDA 12.6.0
 
-https://developer.nvidia.com/cuda-12-6-0-download-archive?target_os=Windows&target_arch=x86_64&target_version=11&target_type=exe_network
+https://developer.nvidia.com/cuda-12-6-0-download-archive
 
 - PyTorch 2.6.0
 
