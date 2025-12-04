@@ -234,3 +234,48 @@ class Encoder(nn.Module):
         embeddings = F.relu(x)
         outputs, hidden_state = self.gru(embeddings)    # all timestep output: seq_len * batch_size * embedding_dim, last hidden_state: 1, batch_size, embedding_dim
         return outputs, hidden_state
+
+class ACEDStateNetwork(nn.Module):
+    def __init__(self, node_state_dim, vnf_state_dim, num_nodes, max_sfc_length, embedding_dim=64):
+        super().__init__()
+        self.max_sfc_length = max_sfc_length
+        self.net_mlp = nn.Linear(node_state_dim, embedding_dim)
+        self.sfc_gcn = GCNConvNet(vnf_state_dim, embedding_dim)
+        self.node_emb = nn.Embedding(num_nodes, embedding_dim)
+        self.reliability_fc = nn.Linear(1, embedding_dim)
+        self.state_fc = nn.Linear(4 * embedding_dim, embedding_dim)
+
+    def forward(self, state):
+        net_state, sfc_state, source_dest_node_pair, reliability_requirement = zip(*state)
+
+        net_states_list = list(net_state)   # net_state = DataBatch(x, edge_index, batch, ptr)
+        batch_net_state = Batch.from_data_list(net_states_list)
+        batch_net_state, _ = to_dense_batch(batch_net_state.x, batch_net_state.batch)  # batch_size * num_nodes * node_state_dim
+        batch_net_state = self.net_mlp(batch_net_state) # batch_size * num_nodes * embedding_dim
+        batch_net_state = batch_net_state.mean(dim=1)   # batch_size * embedding_dim
+        batch_net_state = batch_net_state.unsqueeze(1).expand(-1, self.max_sfc_length, -1)  # batch_size * max_sfc_length * embedding_dim
+
+        sfc_states_list = list(sfc_state)   # sfc_state = DataBatch(x, edge_index, batch, ptr)
+        batch_sfc_state = Batch.from_data_list(sfc_states_list)
+        batch_sfc_state = self.sfc_gcn(batch_sfc_state)
+        batch_sfc_state = batch_sfc_state.reshape(len(state), -1, batch_sfc_state.shape[-1])  # batch_size * max_sfc_length * embedding_dim
+        batch_sfc_state = torch.cumsum(batch_sfc_state, dim=1)  # aggregate successor VNFs
+
+        batch_source_dest_node_pair = torch.stack(source_dest_node_pair, dim=0)  # batch_size * 2
+        batch_source_dest_node_pair = self.node_emb(batch_source_dest_node_pair)    # batch_size * 2 * embedding_dim
+        batch_source_dest_node_pair = batch_source_dest_node_pair.mean(dim=1)   # batch_size * embedding_dim
+        batch_source_dest_node_pair = batch_source_dest_node_pair.unsqueeze(1).expand(-1, self.max_sfc_length, -1)  # batch_size * max_sfc_length * embedding_dim
+
+        batch_reliability_requirement = torch.stack(reliability_requirement, dim=0)  # batch_size * 1
+        batch_reliability_requirement = self.reliability_fc(batch_reliability_requirement)  # batch_size * embedding_dim
+        batch_reliability_requirement = batch_reliability_requirement.unsqueeze(1).expand(-1, self.max_sfc_length, -1)  # batch_size * max_sfc_length * embedding_dim
+
+        # batch_size * max_sfc_length * (4 * embedding_dim)
+        batch_state = torch.cat((batch_net_state,
+                                 batch_sfc_state,
+                                 batch_source_dest_node_pair,
+                                 batch_reliability_requirement),dim=-1)
+
+        batch_state = self.state_fc(batch_state)    # batch_size * max_sfc_length * embedding_dim
+
+        return batch_state
