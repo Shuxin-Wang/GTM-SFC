@@ -9,6 +9,7 @@ import plot
 from environment import Environment
 from sfc import SFCBatchGenerator
 from agent import NCO, DRLSFCP, EnhancedNCO, PPO, ACED
+from heuristic import Greedy
 
 class ExperimentRunner:
     def __init__(self, cfg):
@@ -28,6 +29,7 @@ class ExperimentRunner:
 
         # model init
         self.agent_list = None
+        self.heuristic_list = None
         self.model = cfg.model
         self.set_model()
 
@@ -50,6 +52,9 @@ class ExperimentRunner:
                 PPO(self.cfg, self.env, self.sfc_generator, self.device),
                 ACED(self.cfg, self.env, self.sfc_generator, self.device)
             ]
+            self.heuristic_list = [
+                Greedy(self.cfg, self.env, self.sfc_generator)
+            ]
         elif self.model == 'NCO':
             self.agent_list = [
                 NCO(self.cfg, self.env, self.sfc_generator, self.device)
@@ -70,10 +75,18 @@ class ExperimentRunner:
             self.agent_list = [
                 ACED(self.cfg, self.env, self.sfc_generator, self.device)
             ]
+        elif self.model == 'Greedy':
+            self.heuristic_list = [
+                Greedy(self.cfg, self.env, self.sfc_generator)
+            ]
         else:
             raise ValueError('Invalid model name.')
 
     def train(self):
+        if not self.agent_list:
+            tqdm.write("No agent selected. Skipping training.")
+            return
+
         tqdm.write('-' * 30 + ' Training Start' + '-' * 30 + '\t')
         time.sleep(0.1)
         for agent in self.agent_list:
@@ -128,6 +141,10 @@ class ExperimentRunner:
             time.sleep(0.1)
 
     def evaluate(self):
+        if not self.agent_list:
+            tqdm.write("No agent selected. Skipping evaluation.")
+            return
+
         print('-' * 30 + ' Evaluation Start' + '-' * 30)
         time.sleep(0.1)
         for agent in self.agent_list:
@@ -197,6 +214,80 @@ class ExperimentRunner:
             print('Evaluation complete in {:.2f} seconds.'.format(evaluation_time))
 
             self.save_evaluation_results(agent)
+
+            time.sleep(0.1)
+
+    def heuristic(self):
+        if not self.heuristic_list:
+            tqdm.write("No heuristic algorithm selected. Skipping heuristic evaluation.")
+            return
+
+        print('-' * 30 + ' Heuristic Evaluation Start' + '-' * 30)
+        time.sleep(0.1)
+        for heuristic in self.heuristic_list:
+            heuristic_name = heuristic.__class__.__name__
+
+            heuristic.placement_reward_list = []
+            heuristic.power_consumption_list = []
+            heuristic.exceeded_penalty_list = []
+            heuristic.acceptance_ratio_list = []
+            heuristic.sfc_latency_list = []
+            heuristic.exceeded_node_capacity_list = []
+            heuristic.exceeded_link_bandwidth_list = []
+            heuristic.running_time_list = []
+
+            heuristic.avg_placement_reward_list = []
+            heuristic.avg_power_consumption_list = []
+            heuristic.avg_exceeded_penalty_list = []
+            heuristic.avg_acceptance_ratio_list = []
+            heuristic.avg_sfc_latency_list = []
+            heuristic.avg_exceeded_node_capacity_list = []
+            heuristic.avg_exceeded_link_bandwidth_list = []
+            heuristic.avg_running_time_list = []
+
+            start_time = time.time()
+
+            pbar = tqdm(self.batch_size_list, desc=heuristic_name + ' | Evaluation Progress')
+
+            for batch_size in pbar:
+                self.sfc_generator.set_batch_size(batch_size)
+                for _ in range(self.episode):
+                    sfc_list = self.sfc_generator.get_sfc_batch()
+                    sfc_state_list, source_dest_node_pairs, reliability_requirement_list = self.sfc_generator.get_sfc_states()
+
+                    heuristic_start_time = time.time()
+                    heuristic.test(self.env, sfc_list, source_dest_node_pairs, reliability_requirement_list)
+                    heuristic.running_time_list.append(time.time() - heuristic_start_time)
+                    heuristic.placement_reward_list.append(np.sum(self.env.placement_reward_list))
+                    heuristic.power_consumption_list.append(np.sum(self.env.power_consumption_list))
+                    heuristic.exceeded_penalty_list.append(np.sum(self.env.exceeded_penalty_list))
+                    heuristic.acceptance_ratio_list.append(self.env.sfc_placed_num / batch_size)
+                    heuristic.sfc_latency_list.append(np.mean(self.env.sfc_latency_list))
+                    heuristic.exceeded_node_capacity_list.append(np.max((0, self.env.exceeded_node_capacity_list[-1])))
+                    heuristic.exceeded_link_bandwidth_list.append(np.max((0, self.env.exceeded_link_bandwidth_list[-1])))
+
+                heuristic.avg_placement_reward_list.append(np.mean(heuristic.placement_reward_list))
+                heuristic.avg_power_consumption_list.append(np.mean(heuristic.power_consumption_list))
+                heuristic.avg_exceeded_penalty_list.append(np.mean(heuristic.exceeded_penalty_list))
+                heuristic.avg_acceptance_ratio_list.append(np.mean(heuristic.acceptance_ratio_list))
+                heuristic.avg_sfc_latency_list.append((np.mean(heuristic.sfc_latency_list)))
+                heuristic.avg_exceeded_node_capacity_list.append(np.mean(heuristic.exceeded_node_capacity_list))
+                heuristic.avg_exceeded_link_bandwidth_list.append(np.mean(heuristic.exceeded_link_bandwidth_list))
+                heuristic.avg_running_time_list.append(np.mean(heuristic.running_time_list))
+
+                heuristic.placement_reward_list.clear()
+                heuristic.power_consumption_list.clear()
+                heuristic.exceeded_penalty_list.clear()
+                heuristic.acceptance_ratio_list.clear()
+                heuristic.sfc_latency_list.clear()
+                heuristic.exceeded_node_capacity_list.clear()
+                heuristic.exceeded_link_bandwidth_list.clear()
+                heuristic.running_time_list.clear()
+
+            evaluation_time = time.time() - start_time
+            print('Evaluation complete in {:.2f} seconds.'.format(evaluation_time))
+
+            self.save_evaluation_results(heuristic)
 
             time.sleep(0.1)
 

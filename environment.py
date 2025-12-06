@@ -170,7 +170,7 @@ class Environment:
         for node in placement:
             self.reliability *= self.node_properties[node]['reliability']
         for i, route in enumerate(path):
-            if route:   # if path exist, calculate reliability
+            if route:   # if path exists, calculate reliability
                 for j in range(len(route) - 1):
                     if int(route[j]) > int(route[j + 1]):  # 调整节点顺序以选择链路
                         index = self.link_index[(route[j + 1], route[j])]
@@ -195,7 +195,7 @@ class Environment:
         # vnf deployment reward
         for i in range(len(sfc)):
             index = sfc[i]
-            # size * bandwidth / latency
+            # R_vnf = size * bandwidth / latency
             vnf_reward = self.vnf_properties[index]['size'] \
                          * (self.vnf_properties[index]['bandwidth'] / 20) \
                          / (self.vnf_properties[index]['latency'] / 20)

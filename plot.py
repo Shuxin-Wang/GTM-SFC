@@ -24,7 +24,7 @@ def show_train_result(graph, dir_path, agent_name_list):
 
     figure_path = 'save/result/' + graph + '/plot/'
     os.makedirs(figure_path, exist_ok=True)
-    colors = ['#cc7c71', '#925eb0', '#72b063', '#719aac', '#e29135']
+    colors = ['#925eb0', '#e29135', '#72b063', '#94c6cd', '#cc7c71', '#7a9bb8']
     episode = range(len(actor_loss_list[0]))
     window_size = 50
 
@@ -63,10 +63,10 @@ def show_evaluate_result(graph, dir_path, agent_name_list):
     # row number in csv files
     index_num = len(df_list[0]) if df_list else 0
 
-    bar_width = 0.2
+    bar_width = 0.8 / len(agent_name_list)
     index = np.arange(index_num)    # bar location
     labels = df_list[0]['Number of SFC']
-    colors = ['#925eb0', '#e29135', '#72b063', '#94c6cd', '#cc7c71']
+    colors = ['#925eb0', '#e29135', '#72b063', '#94c6cd', '#cc7c71', '#7a9bb8']
 
     figure_path = 'save/result/' + graph +'/plot/'
     os.makedirs(figure_path, exist_ok=True)
@@ -96,7 +96,8 @@ def show_evaluate_result(graph, dir_path, agent_name_list):
         plt.xlabel('Number of SFC', fontsize=12)
         plt.ylabel(metric, fontsize=12)
 
-        plt.xticks(index + bar_width, labels=labels)
+        xtick = index + (len(agent_name_list) - 1) * bar_width / 2
+        plt.xticks(xtick, labels=labels)
         plt.legend()
         plt.grid(axis='y', linestyle='--', alpha=0.3)
         plt.tight_layout()
@@ -105,9 +106,12 @@ def show_evaluate_result(graph, dir_path, agent_name_list):
     plt.show()
 
 def show_results(runner):
-    agent_name_list = [agent.__class__.__name__ for agent in runner.agent_list]
-    show_train_result(runner.graph, runner.result_path + '/train', agent_name_list)
-    show_evaluate_result(runner.graph, runner.result_path + '/evaluate', agent_name_list)
+    if runner.agent_list:
+        agent_list = [agent.__class__.__name__ for agent in runner.agent_list]
+    if runner.heuristic_list:
+        heuristic_list = [heuristic.__class__.__name__ for heuristic in runner.heuristic_list]
+    show_train_result(runner.graph, runner.result_path + '/train', agent_list)
+    show_evaluate_result(runner.graph, runner.result_path + '/evaluate', agent_list + heuristic_list)
 
 if __name__ == '__main__':
     agent_name_list = [

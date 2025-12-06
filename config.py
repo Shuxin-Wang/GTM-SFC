@@ -16,8 +16,8 @@ class Config():
         parser.add_argument('--num_vnf_types', type=int, default=8, help='number of VNF types, 1-8')
 
         parser.add_argument('--graph', type=str, default='Chinanet', help='graph name')
-        parser.add_argument('--model', type=str, default='all', help='agent model(s) to be trained (all / NCO / EnhancedNCO / DRLSFCP / PPO / ACED)')
-        parser.add_argument('--train', type=str2bool, default=True, help='train model')
+        parser.add_argument('--model', type=str, default='all', help='agent model(s) to be trained (all / NCO / EnhancedNCO / DRLSFCP / PPO / ACED / Greedy)')
+        parser.add_argument('--train', type=str2bool, default=False, help='train model')
         parser.add_argument('--evaluate', type=str2bool, default=True, help='evaluate model')
         parser.add_argument('--save_model', type=str2bool, default=True, help='save model')
 
