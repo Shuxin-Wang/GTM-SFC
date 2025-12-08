@@ -8,7 +8,7 @@ class Config():
         parser = argparse.ArgumentParser(description='Configuration file')
 
         parser.add_argument('--batch_size', type=int, default=20, help='batch size of training')
-        parser.add_argument('--iteration', type=int, default=100, help='number of iterations')
+        parser.add_argument('--iteration', type=int, default=500, help='number of iterations')
         parser.add_argument('--episode', type=int, default=10, help='number of epochs trained in an iteration')
 
         parser.add_argument('--min_sfc_length', type=int, default=6, help='min sfc length')
@@ -16,7 +16,7 @@ class Config():
         parser.add_argument('--num_vnf_types', type=int, default=8, help='number of VNF types, 1-8')
 
         parser.add_argument('--graph', type=str, default='Chinanet', help='graph name')
-        parser.add_argument('--model', type=str, default='ALL', help='agent model(s) to be trained (ALL / NCO / EnhancedNCO / DRLSFCP / PPO / ACED / Heuristic / Greedy / FirstFit)')
+        parser.add_argument('--model', type=str, default='PPO', help='agent model(s) to be trained (ALL / NCO / EnhancedNCO / DRLSFCP / PPO / ACED / Heuristic / Greedy / FirstFit)')
         parser.add_argument('--train', type=str2bool, default=True, help='train model')
         parser.add_argument('--evaluate', type=str2bool, default=True, help='evaluate model')
         parser.add_argument('--save_model', type=str2bool, default=True, help='save model')

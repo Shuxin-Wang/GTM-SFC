@@ -82,7 +82,7 @@ class Environment:
         self.lambda_capacity = 0.25
         self.lambda_bandwidth = 0.01
         self.lambda_latency = 0.01
-        self.lambda_reliability = 100   # todo: adjust reliability
+        self.lambda_reliability = 50   # todo: adjust reliability
 
         # record episode data
         self.placement_reward_list = []

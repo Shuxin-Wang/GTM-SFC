@@ -403,6 +403,8 @@ class PPO(nn.Module):
                 placement = action[0][:len(sfc_list[i])].squeeze(0).to(dtype=torch.int32).tolist() # masked placement
                 sfc = source_dest_node_pair.to(dtype=torch.int32).tolist() + sfc_list[i] + reliability_requirement.tolist()
                 next_node_states, reward = env.step(sfc, placement)
+                # print(env.placement_reward, env.power_consumption, env.exceeded_penalty, env.reliability_difference)
+                # print(env.reward)
                 episode_reward += reward
 
                 if i + 1 >= sfc_generator.batch_size:
@@ -472,7 +474,6 @@ class PPO(nn.Module):
             for t in reversed(range(len_traj)):
                 gae = deltas[t] + discount * gae_lambda * (1 - dones[t]) * gae
                 advantages[t] = gae
-            advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
             targets = advantages + values   # len_traj
 
             all_states.extend(states)
@@ -846,7 +847,6 @@ class ACED(nn.Module):
             for t in reversed(range(len_traj)):
                 gae = deltas[t] + discount * gae_lambda * (1 - dones[t]) * gae
                 advantages[t] = gae
-            advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
             targets = advantages + values   # len_traj
 
             all_states.extend(states)
