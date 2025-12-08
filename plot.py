@@ -8,7 +8,8 @@ def show_train_result(graph, dir_path, agent_name_list):
     agent_num = len(agent_name_list)
 
     df_list = []
-    reward_list = []
+    avg_reward_list = []
+    std_reward_list = []
     avg_acceptance_ratio_list = []
     actor_loss_list = []
     critic_loss_list = []
@@ -17,7 +18,8 @@ def show_train_result(graph, dir_path, agent_name_list):
         csv_file_path = dir_path + '/' + agent_name + '.csv'
         df = pd.read_csv(csv_file_path)
         df_list.append(df)
-        reward_list.append(df['Reward'])
+        avg_reward_list.append(df['Avg Reward'])
+        std_reward_list.append(df['Std Reward'])
         avg_acceptance_ratio_list.append(df['Acceptance Ratio'])
         actor_loss_list.append(df['Actor Loss'])
         critic_loss_list.append(df['Critic Loss'])
@@ -28,6 +30,23 @@ def show_train_result(graph, dir_path, agent_name_list):
     episode = range(len(actor_loss_list[0]))
     window_size = 50
 
+    plt.figure(figsize=(10, 6))
+    for i in range(agent_num):
+        episodes = np.arange(len(avg_reward_list[i]))
+        avg_reward = avg_reward_list[i]
+        std_reward = std_reward_list[i]
+
+        plt.plot(episodes, avg_reward, color=colors[i], label=agent_name_list[i])
+        plt.fill_between(episodes, avg_reward - std_reward, avg_reward + std_reward, color=colors[i], alpha=0.2)
+
+    plt.title('Reward Mean ± Std')
+    plt.xlabel('Episode')
+    plt.ylabel('Reward')
+    plt.legend()
+    # plt.grid(True, linestyle='--', alpha=0.5)
+    plt.tight_layout()
+    plt.show()
+
     # Actor Loss
     plt.figure(figsize=(10, 6))
     for i in range(agent_num):
@@ -37,6 +56,8 @@ def show_train_result(graph, dir_path, agent_name_list):
         sns.lineplot(data=df, x='Episode', y='Smoothed Actor Loss', color=colors[i], label=agent_name_list[i] + ' Smoothed Actor Loss')
     plt.title('Actor Training Loss Curve with Smoothing')
     plt.legend()
+    plt.tight_layout()
+    plt.show()
 
     # Critic Loss
     plt.figure(figsize=(10, 6))
@@ -49,6 +70,7 @@ def show_train_result(graph, dir_path, agent_name_list):
                      label=agent_name_list[i] + ' Smoothed Critic Loss')
     plt.title('Critic Training Loss Curve with Smoothing')
     plt.legend()
+    plt.tight_layout()
     plt.show()
 
 def show_evaluate_result(graph, dir_path, agent_name_list):
@@ -106,12 +128,17 @@ def show_evaluate_result(graph, dir_path, agent_name_list):
     plt.show()
 
 def show_results(runner):
-    if runner.agent_list:
-        agent_list = [agent.__class__.__name__ for agent in runner.agent_list]
-    if runner.heuristic_list:
-        heuristic_list = [heuristic.__class__.__name__ for heuristic in runner.heuristic_list]
-    show_train_result(runner.graph, runner.result_path + '/train', agent_list)
-    show_evaluate_result(runner.graph, runner.result_path + '/evaluate', agent_list + heuristic_list)
+    agent_list = [agent.__class__.__name__ for agent in (runner.agent_list or [])]
+    heuristic_list = [heuristic.__class__.__name__ for heuristic in (runner.heuristic_list or [])]
+    result_list = agent_list + heuristic_list
+
+    if result_list:
+        if runner.cfg.train:
+            show_train_result(runner.graph, runner.result_path + '/train', result_list)
+        if runner.cfg.evaluate:
+            show_evaluate_result(runner.graph, runner.result_path + '/evaluate', result_list)
+    else:
+        print("Enable train or evaluate to show results.")
 
 if __name__ == '__main__':
     agent_name_list = [
@@ -119,9 +146,10 @@ if __name__ == '__main__':
         'EnhancedNCO',
         'DRLSFCP',
         'PPO',
+        'ACED'
         ]
 
     # show_train_result('Cogentco', 'save/result/Cogentco/train', agent_name_list)
     # show_evaluate_result('Cogentco', 'save/result/Cogentco/evaluate', agent_name_list)
-    # show_train_result('Chinanet', 'save/result/Chinanet/train', agent_name_list)
+    show_train_result('Chinanet', 'save/result/Chinanet/train', agent_name_list)
     # show_evaluate_result('Chinanet', 'save/result/Chinanet/evaluate', agent_name_list)

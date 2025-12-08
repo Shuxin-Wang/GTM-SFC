@@ -9,7 +9,7 @@ import plot
 from environment import Environment
 from sfc import SFCBatchGenerator
 from agent import NCO, DRLSFCP, EnhancedNCO, PPO, ACED
-from heuristic import Greedy
+from heuristic import Greedy, FirstFit
 
 class ExperimentRunner:
     def __init__(self, cfg):
@@ -53,7 +53,8 @@ class ExperimentRunner:
                 ACED(self.cfg, self.env, self.sfc_generator, self.device)
             ]
             self.heuristic_list = [
-                Greedy(self.cfg, self.env, self.sfc_generator)
+                Greedy(self.cfg, self.env, self.sfc_generator),
+                FirstFit(self.cfg, self.env, self.sfc_generator)
             ]
         elif self.model == 'NCO':
             self.agent_list = [
@@ -75,9 +76,21 @@ class ExperimentRunner:
             self.agent_list = [
                 ACED(self.cfg, self.env, self.sfc_generator, self.device)
             ]
+        elif self.model == 'Heuristic':
+            self.cfg.train = False
+            self.heuristic_list = [
+                Greedy(self.cfg, self.env, self.sfc_generator),
+                FirstFit(self.cfg, self.env, self.sfc_generator)
+            ]
         elif self.model == 'Greedy':
+            self.cfg.train = False
             self.heuristic_list = [
                 Greedy(self.cfg, self.env, self.sfc_generator)
+            ]
+        elif self.model == 'FirstFit':
+            self.cfg.train = False
+            self.heuristic_list = [
+                FirstFit(self.cfg, self.env, self.sfc_generator)
             ]
         else:
             raise ValueError('Invalid model name.')
@@ -92,8 +105,10 @@ class ExperimentRunner:
         for agent in self.agent_list:
             actor_loss_list = []
             critic_loss_list = []
-            reward_list = []
+            avg_reward_list = []
+            std_reward_list = []
             avg_acceptance_ratio_list = []
+
 
             agent_name = agent.__class__.__name__
 
@@ -101,10 +116,11 @@ class ExperimentRunner:
 
             start_time = time.time()
             for e in pbar:
-                avg_episode_reward, avg_acceptance_ratio = agent.fill_replay_buffer(self.env, self.sfc_generator,
+                avg_episode_reward, std_episode_reward, avg_acceptance_ratio = agent.fill_replay_buffer(self.env, self.sfc_generator,
                                                                                     self.episode)  # fill replay buffer with n * args.batch_size data
                 agent.train()  # episode * batch_size, update parameters for episode times per batch size
-                reward_list.append(avg_episode_reward)
+                avg_reward_list.append(avg_episode_reward)
+                std_reward_list.append(std_episode_reward)
                 avg_acceptance_ratio_list.append(avg_acceptance_ratio)
                 actor_loss_list.extend(agent.actor_loss_list)
                 critic_loss_list.extend(agent.critic_loss_list)
@@ -119,14 +135,17 @@ class ExperimentRunner:
             training_time = time.time() - start_time
             print('Training complete in {:.2f} seconds.'.format(training_time))
 
-            # fill list to same length
+            # fill the list to same length
             list_length = len(actor_loss_list)
-            reward_list += [np.nan] * (list_length - len(reward_list))
+            avg_reward_list += [np.nan] * (list_length - len(avg_reward_list))
+            std_reward_list += [np.nan] * (list_length - len(std_reward_list))
+
             avg_acceptance_ratio_list += [np.nan] * (list_length - len(avg_acceptance_ratio_list))
             training_time_list = [training_time] + [np.nan] * (list_length - 1)
 
             agent.training_logs = {
-                'reward_list': reward_list,
+                'avg_reward_list': avg_reward_list,
+                'std_reward_list': std_reward_list,
                 'avg_acceptance_ratio_list': avg_acceptance_ratio_list,
                 'actor_loss_list': actor_loss_list,
                 'critic_loss_list': critic_loss_list,
@@ -295,13 +314,15 @@ class ExperimentRunner:
         csv_file_path = 'save/result/' + self.graph + '/train/' + agent.__class__.__name__ + '.csv'
 
         list_length = len(agent.training_logs['actor_loss_list'])
-        reward_list = agent.training_logs['reward_list']
+        avg_reward_list = agent.training_logs['avg_reward_list']
+        std_reward_list = agent.training_logs['std_reward_list']
         avg_acceptance_ratio_list = agent.training_logs['avg_acceptance_ratio_list']
         actor_loss_list = agent.training_logs['actor_loss_list']
         critic_loss_list = agent.training_logs['critic_loss_list']
         training_time_list = [agent.training_logs['training_time']] + [np.nan] * (list_length - 1)
 
-        df = pd.DataFrame({'Reward': reward_list,
+        df = pd.DataFrame({'Avg Reward': avg_reward_list,
+                           'Std Reward': std_reward_list,
                            'Acceptance Ratio': avg_acceptance_ratio_list,
                            'Actor Loss': actor_loss_list,
                            'Critic Loss': critic_loss_list,

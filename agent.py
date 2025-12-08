@@ -1,4 +1,5 @@
 import random
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -46,9 +47,8 @@ class NCO(nn.Module):
 
         self.device = device
 
-        self.avg_episode_reward = 0
-        self.avg_acceptance_ratio = 0
-        self.avg_node_resource_utilization = 0
+        self.episode_reward_list = []
+        self.accepted_sfc_num = 0
 
     def select_action(self, logits, exploration=True):
         if exploration:
@@ -61,9 +61,10 @@ class NCO(nn.Module):
 
     def fill_replay_buffer(self, env, sfc_generator, episode):
         env.clear()
-        self.avg_episode_reward = 0
-        self.avg_acceptance_ratio = 0
+        self.episode_reward_list.clear()
+        self.accepted_sfc_num = 0
         for e in range(episode):
+            episode_reward = 0
             sfc_list = sfc_generator.get_sfc_batch()
             sfc_state_list, source_dest_node_pairs, reliability_requirement_list = sfc_generator.get_sfc_states()
             for i in range(sfc_generator.batch_size):
@@ -85,7 +86,7 @@ class NCO(nn.Module):
                 placement = action[0][:len(sfc_list[i])].squeeze(0).to(dtype=torch.int32).tolist()  # masked placement
                 sfc = source_dest_node_pair.to(dtype=torch.int32).tolist() + sfc_list[i] + reliability_requirement.tolist()
                 next_node_states, reward = env.step(sfc, placement)
-                self.avg_episode_reward += reward
+                episode_reward += reward
 
                 if i + 1 >= sfc_generator.batch_size:
                     next_state = state
@@ -103,9 +104,16 @@ class NCO(nn.Module):
 
                 self.replay_buffer.push(state, action, reward, next_state, done)
                 env.clear_sfc()
-            self.avg_acceptance_ratio += env.sfc_placed_num
+
+            self.episode_reward_list.append(episode_reward)
+            self.accepted_sfc_num += env.sfc_placed_num
             env.clear()
-        return self.avg_episode_reward / episode, self.avg_acceptance_ratio / sfc_generator.batch_size / episode
+
+        avg_episode_reward = np.mean(self.episode_reward_list)
+        std_episode_reward = np.std(self.episode_reward_list)
+        avg_acceptance_ratio = self.accepted_sfc_num / sfc_generator.batch_size / episode
+
+        return avg_episode_reward, std_episode_reward, avg_acceptance_ratio
 
     def train(self, episode=1, discount=0.99, tau=0.005):
         batch_size = self.episode * self.batch_size
@@ -195,9 +203,8 @@ class EnhancedNCO(nn.Module):
 
         self.device = device
 
-        self.avg_episode_reward = 0
-        self.avg_acceptance_ratio = 0
-        self.avg_node_resource_utilization = 0
+        self.episode_reward_list = []
+        self.accepted_sfc_num = 0
 
     def select_action(self, logits, exploration=True):
         if exploration:
@@ -210,9 +217,10 @@ class EnhancedNCO(nn.Module):
 
     def fill_replay_buffer(self, env, sfc_generator, episode):
         env.clear()
-        self.avg_episode_reward = 0
-        self.avg_acceptance_ratio = 0
+        self.episode_reward_list.clear()
+        self.accepted_sfc_num = 0
         for e in range(episode):
+            episode_reward = 0
             sfc_list = sfc_generator.get_sfc_batch()
             sfc_state_list, source_dest_node_pairs, reliability_requirement_list = sfc_generator.get_sfc_states()
             for i in range(sfc_generator.batch_size):
@@ -234,7 +242,7 @@ class EnhancedNCO(nn.Module):
                 placement = action[0][:len(sfc_list[i])].squeeze(0).to(dtype=torch.int32).tolist() # masked placement
                 sfc = source_dest_node_pair.to(dtype=torch.int32).tolist() + sfc_list[i] + reliability_requirement.tolist()
                 next_node_states, reward = env.step(sfc, placement)
-                self.avg_episode_reward += reward
+                episode_reward += reward
 
                 if i + 1 >= sfc_generator.batch_size:
                     next_state = state
@@ -252,9 +260,16 @@ class EnhancedNCO(nn.Module):
 
                 self.replay_buffer.push(state, action, reward, next_state, done)
                 env.clear_sfc()
-            self.avg_acceptance_ratio += env.sfc_placed_num
+
+            self.episode_reward_list.append(episode_reward)
+            self.accepted_sfc_num += env.sfc_placed_num
             env.clear()
-        return self.avg_episode_reward / episode, self.avg_acceptance_ratio / sfc_generator.batch_size / episode
+
+        avg_episode_reward = np.mean(self.episode_reward_list)
+        std_episode_reward = np.std(self.episode_reward_list)
+        avg_acceptance_ratio = self.accepted_sfc_num / sfc_generator.batch_size / episode
+
+        return avg_episode_reward, std_episode_reward, avg_acceptance_ratio
 
     def train(self, episode=1, discount=0.99, tau=0.005):
         batch_size = self.episode * self.batch_size
@@ -349,9 +364,8 @@ class PPO(nn.Module):
 
         self.device = device
 
-        self.avg_episode_reward = 0
-        self.avg_acceptance_ratio = 0
-        self.avg_node_resource_utilization = 0
+        self.episode_reward_list = []
+        self.accepted_sfc_num = 0
 
     def select_action(self, logits, exploration=True):
         if exploration:
@@ -364,9 +378,10 @@ class PPO(nn.Module):
 
     def fill_replay_buffer(self, env, sfc_generator, episode):
         env.clear()
-        self.avg_episode_reward = 0
-        self.avg_acceptance_ratio = 0
+        self.episode_reward_list.clear()
+        self.accepted_sfc_num = 0
         for e in range(episode):
+            episode_reward = 0
             sfc_list = sfc_generator.get_sfc_batch()
             sfc_state_list, source_dest_node_pairs, reliability_requirement_list = sfc_generator.get_sfc_states()
             for i in range(sfc_generator.batch_size):
@@ -388,7 +403,7 @@ class PPO(nn.Module):
                 placement = action[0][:len(sfc_list[i])].squeeze(0).to(dtype=torch.int32).tolist() # masked placement
                 sfc = source_dest_node_pair.to(dtype=torch.int32).tolist() + sfc_list[i] + reliability_requirement.tolist()
                 next_node_states, reward = env.step(sfc, placement)
-                self.avg_episode_reward += reward
+                episode_reward += reward
 
                 if i + 1 >= sfc_generator.batch_size:
                     next_state = state
@@ -406,9 +421,16 @@ class PPO(nn.Module):
 
                 self.replay_buffer.push(state, action, reward, next_state, done)
                 env.clear_sfc()
-            self.avg_acceptance_ratio += env.sfc_placed_num
+
+            self.episode_reward_list.append(episode_reward)
+            self.accepted_sfc_num += env.sfc_placed_num
             env.clear()
-        return self.avg_episode_reward / episode, self.avg_acceptance_ratio / sfc_generator.batch_size / episode
+
+        avg_episode_reward = np.mean(self.episode_reward_list)
+        std_episode_reward = np.std(self.episode_reward_list)
+        avg_acceptance_ratio = self.accepted_sfc_num / sfc_generator.batch_size / episode
+
+        return avg_episode_reward, std_episode_reward, avg_acceptance_ratio
 
     def train(self, episode=1, discount=0.99, clip_epsilon=0.2, ppo_epochs=4, gae_lambda=0.95):
         batch_size = self.episode * self.batch_size
@@ -458,7 +480,7 @@ class PPO(nn.Module):
             all_advantages.append(advantages)
             all_targets.append(targets)
 
-        all_actions = torch.cat(all_actions, dim=0).view(batch_size, -1) # batch_size * max_sfc_length
+        all_actions = torch.cat(all_actions, dim=0).view(int(batch_size), -1) # batch_size * max_sfc_length
         all_advantages = torch.cat(all_advantages, dim=0).unsqueeze(1)  # batch_size * 1
         all_targets = torch.cat(all_targets, dim=0).unsqueeze(1)    # batch_size * 1
 
@@ -545,9 +567,8 @@ class DRLSFCP(nn.Module):
 
         self.device = device
 
-        self.avg_episode_reward = 0
-        self.avg_acceptance_ratio = 0
-        self.avg_node_resource_utilization = 0
+        self.episode_reward_list = []
+        self.accepted_sfc_num = 0
 
     def select_action(self, logits, exploration=True):
         if exploration:
@@ -560,9 +581,10 @@ class DRLSFCP(nn.Module):
 
     def fill_replay_buffer(self, env, sfc_generator, episode):
         env.clear()
-        self.avg_episode_reward = 0
-        self.avg_acceptance_ratio = 0
+        self.episode_reward_list.clear()
+        self.accepted_sfc_num = 0
         for e in range(episode):
+            episode_reward = 0
             sfc_list = sfc_generator.get_sfc_batch()
             sfc_state_list, source_dest_node_pairs, reliability_requirement_list = sfc_generator.get_sfc_states()
             for i in range(sfc_generator.batch_size):
@@ -584,7 +606,7 @@ class DRLSFCP(nn.Module):
                 placement = action[0][:len(sfc_list[i])].squeeze(0).to(dtype=torch.int32).tolist()  # masked placement
                 sfc = source_dest_node_pair.to(dtype=torch.int32).tolist() + sfc_list[i] + reliability_requirement.tolist()
                 next_node_states, reward = env.step(sfc, placement)
-                self.avg_episode_reward += reward
+                episode_reward += reward
 
                 if i + 1 >= sfc_generator.batch_size:
                     next_state = state
@@ -602,13 +624,19 @@ class DRLSFCP(nn.Module):
 
                 self.replay_buffer.push(state, action, reward, next_state, done)
                 env.clear_sfc()
-            self.avg_acceptance_ratio += env.sfc_placed_num
+
+            self.episode_reward_list.append(episode_reward)
+            self.accepted_sfc_num += env.sfc_placed_num
             env.clear()
 
             self.actor._last_hidden_state = None
             self.critic._last_hidden_state = None
 
-        return self.avg_episode_reward / episode, self.avg_acceptance_ratio / sfc_generator.batch_size / episode
+        avg_episode_reward = np.mean(self.episode_reward_list)
+        std_episode_reward = np.std(self.episode_reward_list)
+        avg_acceptance_ratio = self.accepted_sfc_num / sfc_generator.batch_size / episode
+
+        return avg_episode_reward, std_episode_reward, avg_acceptance_ratio
 
     def train(self, episode=1, discount=0.99):
         batch_size = self.episode * self.batch_size
@@ -712,9 +740,8 @@ class ACED(nn.Module):
 
         self.device = device
 
-        self.avg_episode_reward = 0
-        self.avg_acceptance_ratio = 0
-        self.avg_node_resource_utilization = 0
+        self.episode_reward_list = []
+        self.accepted_sfc_num = 0
 
     def select_action(self, logits, exploration=True):
         if exploration:
@@ -727,9 +754,10 @@ class ACED(nn.Module):
 
     def fill_replay_buffer(self, env, sfc_generator, episode):
         env.clear()
-        self.avg_episode_reward = 0
-        self.avg_acceptance_ratio = 0
+        self.episode_reward_list.clear()
+        self.accepted_sfc_num = 0
         for e in range(episode):
+            episode_reward = 0
             sfc_list = sfc_generator.get_sfc_batch()
             sfc_state_list, source_dest_node_pairs, reliability_requirement_list = sfc_generator.get_sfc_states()
             for i in range(sfc_generator.batch_size):
@@ -749,7 +777,7 @@ class ACED(nn.Module):
                 placement = action[0][:len(sfc_list[i])].squeeze(0).to(dtype=torch.int32).tolist() # masked placement
                 sfc = source_dest_node_pair.to(dtype=torch.int32).tolist() + sfc_list[i] + reliability_requirement.tolist()
                 next_node_states, reward = env.step(sfc, placement)
-                self.avg_episode_reward += reward
+                episode_reward += reward
 
                 if i + 1 >= sfc_generator.batch_size:
                     next_state = state
@@ -767,9 +795,16 @@ class ACED(nn.Module):
 
                 self.replay_buffer.push(state, action, reward, next_state, done)
                 env.clear_sfc()
-            self.avg_acceptance_ratio += env.sfc_placed_num
+
+            self.episode_reward_list.append(episode_reward)
+            self.accepted_sfc_num += env.sfc_placed_num
             env.clear()
-        return self.avg_episode_reward / episode, self.avg_acceptance_ratio / sfc_generator.batch_size / episode
+
+        avg_episode_reward = np.mean(self.episode_reward_list)
+        std_episode_reward = np.std(self.episode_reward_list)
+        avg_acceptance_ratio = self.accepted_sfc_num / sfc_generator.batch_size / episode
+
+        return avg_episode_reward, std_episode_reward, avg_acceptance_ratio
 
     def train(self, episode=1, discount=0.99, clip_epsilon=0.2, ppo_epochs=4, gae_lambda=0.95):
         batch_size = self.episode * self.batch_size
