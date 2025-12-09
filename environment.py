@@ -3,6 +3,7 @@ import numpy as np
 import networkx as nx
 import torch
 from torch_geometric.utils import to_undirected
+from collections import deque
 
 VNF_SIZE = [4, 3, 2, 2, 1, 1, 1, 1] # node resource of a VNF need
 VNF_LATENCY = [20, 20, 40, 40, 80, 80, 100, 100]    # VNF processing delay
@@ -77,12 +78,19 @@ class Environment:
         self.reward = 0
         self.sfc_placed_num = 0
 
-        self.lambda_placement = 20
-        self.lambda_power = 5
-        self.lambda_capacity = 0.25
-        self.lambda_bandwidth = 0.01
-        self.lambda_latency = 0.01
-        self.lambda_reliability = 50   # todo: adjust reliability
+        self.lambda_placement = 1
+        self.lambda_power = 1
+        self.lambda_capacity = 1
+        self.lambda_bandwidth = 1
+        self.lambda_latency = 1
+        self.lambda_reliability = 1
+
+        # record max reward to normalization
+        self.placement_reward_window = deque(maxlen=cfg.episode * cfg.batch_size)
+        self.power_consumption_window = deque(maxlen=cfg.episode * cfg.batch_size)
+        self.exceeded_capacity_window = deque(maxlen=cfg.episode * cfg.batch_size)
+        self.exceeded_bandwidth_window = deque(maxlen=cfg.episode * cfg.batch_size)
+        self.exceeded_latency_window = deque(maxlen=cfg.episode * cfg.batch_size)
 
         # record episode data
         self.placement_reward_list = []
@@ -205,14 +213,26 @@ class Environment:
             self.placement_reward = self.placement_reward * 2
             self.sfc_placed_num += 1
 
-        self.placement_reward = self.lambda_placement * self.placement_reward
+        # normalize reward with a slide window
+        self.placement_reward_window.append(self.placement_reward)
+        self.power_consumption_window.append(self.power_consumption)
+        self.exceeded_capacity_window.append(self.exceeded_capacity)
+        self.exceeded_bandwidth_window.append(self.exceeded_bandwidth)
+        self.exceeded_latency_window.append(self.exceeded_latency)
 
-        self.power_consumption = self.lambda_power * self.power_consumption
+        max_placement_reward = max(self.placement_reward_window) if self.placement_reward_window else 1.0
+        max_power_consumption = max(self.power_consumption_window) if self.power_consumption_window else 1.0
+        max_exceeded_capacity = max(self.exceeded_capacity_window) if self.exceeded_capacity_window else 1.0
+        max_exceeded_bandwidth = max(self.exceeded_bandwidth_window) if self.exceeded_bandwidth_window else 1.0
+        max_exceeded_latency = max(self.exceeded_latency_window) if self.exceeded_latency_window else 1.0
 
-        self.exceeded_penalty = (self.lambda_capacity * self.exceeded_capacity
-                                 + self.lambda_bandwidth * self.exceeded_bandwidth
-                                 + self.lambda_latency * self.exceeded_latency)
+        self.placement_reward = self.lambda_placement * self.placement_reward / (max_placement_reward + 1e-6)
+        self.power_consumption = self.lambda_power * self.power_consumption / (max_power_consumption + 1e-6)
+        self.exceeded_capacity = self.lambda_capacity * self.exceeded_capacity / (max_exceeded_capacity + 1e-6)
+        self.exceeded_bandwidth = self.lambda_bandwidth * self.exceeded_bandwidth / (max_exceeded_bandwidth + 1e-6)
+        self.exceeded_latency = self.lambda_latency * self.exceeded_latency / (max_exceeded_latency + 1e-6)
 
+        self.exceeded_penalty =  self.exceeded_capacity + self.exceeded_bandwidth + self.exceeded_latency
         self.reliability_difference = self.lambda_reliability * (reliability_requirement - self.reliability)
 
         self.reward = self.placement_reward - self.power_consumption - self.exceeded_penalty - self.reliability_difference
@@ -298,13 +318,7 @@ class Environment:
 
         next_node_states = self.aggregate_features()
 
-        return next_node_states, self.reward / 1000 # reward scaling
-
-    def render(self):
-        net_states = self.aggregate_features()
-        print('node number:', self.graph.number_of_nodes())
-        print('link number:', self.graph.number_of_edges())
-        print('net state dim:', net_states.shape[1])
+        return next_node_states, self.reward
 
     # clear records related to current sfc
     def clear_sfc(self):
@@ -327,6 +341,7 @@ class Environment:
         self.placement_reward = 0
         self.power_consumption = 0
         self.exceeded_penalty = 0
+        self.reliability_difference = 0
         self.reward = 0
 
     def clear(self):
@@ -350,8 +365,15 @@ class Environment:
         self.placement_reward = 0
         self.power_consumption = 0
         self.exceeded_penalty = 0
+        self.reliability_difference = 0
         self.reward = 0
         self.sfc_placed_num = 0
+
+        self.placement_reward_window.clear()
+        self.power_consumption_window.clear()
+        self.exceeded_capacity_window.clear()
+        self.exceeded_bandwidth_window.clear()
+        self.exceeded_latency_window.clear()
 
         self.placement_reward_list.clear()
         self.power_consumption_list.clear()

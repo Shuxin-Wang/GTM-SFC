@@ -403,7 +403,7 @@ class PPO(nn.Module):
                 placement = action[0][:len(sfc_list[i])].squeeze(0).to(dtype=torch.int32).tolist() # masked placement
                 sfc = source_dest_node_pair.to(dtype=torch.int32).tolist() + sfc_list[i] + reliability_requirement.tolist()
                 next_node_states, reward = env.step(sfc, placement)
-                # print(env.placement_reward, env.power_consumption, env.exceeded_penalty, env.reliability_difference)
+                print(env.placement_reward, env.power_consumption, env.exceeded_capacity, env.exceeded_bandwidth, env.exceeded_latency, env.reliability_difference)
                 # print(env.reward)
                 episode_reward += reward
 
