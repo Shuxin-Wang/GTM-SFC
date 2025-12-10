@@ -230,11 +230,11 @@ class Environment:
         max_exceeded_bandwidth = max(self.exceeded_bandwidth_window) if self.exceeded_bandwidth_window else 1.0
         max_exceeded_latency = max(self.exceeded_latency_window) if self.exceeded_latency_window else 1.0
 
-        self.placement_reward =  np.clip(self.placement_reward / (max_placement_reward + 1e-6), -1.0, 1.0)
-        self.power_consumption =  np.clip(self.power_consumption / (max_power_consumption + 1e-6), -1.0, 1.0)
-        self.exceeded_capacity =  np.clip(self.exceeded_capacity / (max_exceeded_capacity + 1e-6), -1.0, 1.0)
-        self.exceeded_bandwidth = np.clip(self.exceeded_bandwidth / (max_exceeded_bandwidth + 1e-6), -1.0, 1.0)
-        self.exceeded_latency = np.clip(self.exceeded_latency / (max_exceeded_latency + 1e-6), -1.0, 1.0)
+        self.placement_reward =  np.tanh(self.placement_reward / (max_placement_reward + 1e-6))
+        self.power_consumption =  np.tanh(self.power_consumption / (max_power_consumption + 1e-6))
+        self.exceeded_capacity =  np.tanh(self.exceeded_capacity / (max_exceeded_capacity + 1e-6))
+        self.exceeded_bandwidth = np.tanh(self.exceeded_bandwidth / (max_exceeded_bandwidth + 1e-6))
+        self.exceeded_latency = np.tanh(self.exceeded_latency / (max_exceeded_latency + 1e-6))
 
         exceeded_penalty =  (self.lambda_capacity * self.exceeded_capacity
                                   + self.lambda_bandwidth * self.exceeded_bandwidth

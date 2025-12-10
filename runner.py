@@ -68,7 +68,7 @@ class ExperimentRunner:
             self.agent_list = [
                 DRLSFCP(self.cfg, self.env, self.sfc_generator, self.device)
             ]
-        elif self.model == 'PPO':
+        elif self.model == 'GTMSFC':
             self.agent_list = [
                 GTMSFC(self.cfg, self.env, self.sfc_generator, self.device)
             ]
