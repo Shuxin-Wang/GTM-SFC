@@ -1,5 +1,6 @@
 import networkx as nx
 import environment
+import random
 
 class Greedy:
     def __init__(self, cfg, env, sfc_generator):
@@ -299,11 +300,13 @@ class FirstFit:
 
         self.save_state()
 
+        nodes = list(self.env.graph.nodes())
+        max_iteration = len(nodes)
         fit_node = None
         final_path = None
 
-        for node in self.env.graph.nodes():
-            node = int(node)
+        for _ in range(max_iteration):
+            node = int(random.choice(nodes))
             if not dest:
                 path = self.find_route(self.last_action, node)
             else:
@@ -315,20 +318,19 @@ class FirstFit:
                     path = p1[:-1] + p2
 
             if not path:
-                self.load_state()
                 continue
-            else:
-                self.place_vnf(node)
-                self.update_bandwidth(path)
-                if not self.capacity_exceeded(node) and not self.bandwidth_exceeded(path):
-                    fit_node = node
-                    final_path = path
-                    self.load_state()
-                    break
+
+            self.place_vnf(node)
+            self.update_bandwidth(path)
+            if not self.capacity_exceeded(node) and not self.bandwidth_exceeded(path):
+                fit_node = node
+                final_path = path
+                break
 
             self.load_state()
 
         if fit_node is None:
+            self.load_state()
             fit_node = int(next(iter(self.env.graph.nodes())))  # choose default node to place VNF
             if not dest:
                 final_path = self.find_route(self.last_action, fit_node)
@@ -340,8 +342,8 @@ class FirstFit:
                 else:
                     final_path = p1[:-1] + p2
 
-        self.place_vnf(fit_node)
-        self.update_bandwidth(final_path)
+            self.place_vnf(fit_node)
+            self.update_bandwidth(final_path)
 
         self.last_action = fit_node
 
