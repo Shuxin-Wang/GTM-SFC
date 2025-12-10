@@ -174,7 +174,6 @@ class ExperimentRunner:
 
             agent.placement_reward_list = []
             agent.power_consumption_list = []
-            agent.exceeded_penalty_list = []
             agent.acceptance_ratio_list = []
             agent.sfc_latency_list = []
             agent.exceeded_node_capacity_list = []
@@ -183,7 +182,6 @@ class ExperimentRunner:
 
             agent.avg_placement_reward_list = []
             agent.avg_power_consumption_list = []
-            agent.avg_exceeded_penalty_list = []
             agent.avg_acceptance_ratio_list = []
             agent.avg_sfc_latency_list = []
             agent.avg_exceeded_node_capacity_list = []
@@ -205,15 +203,13 @@ class ExperimentRunner:
                     agent.running_time_list.append(time.time() - agent_start_time)
                     agent.placement_reward_list.append(np.sum(self.env.placement_reward_list))
                     agent.power_consumption_list.append(np.sum(self.env.power_consumption_list))
-                    agent.exceeded_penalty_list.append(np.sum(self.env.exceeded_penalty_list))
                     agent.acceptance_ratio_list.append(self.env.sfc_placed_num / batch_size)
                     agent.sfc_latency_list.append(np.mean(self.env.sfc_latency_list))
-                    agent.exceeded_node_capacity_list.append(np.max((0, self.env.exceeded_node_capacity_list[-1])))
-                    agent.exceeded_link_bandwidth_list.append(np.max((0, self.env.exceeded_link_bandwidth_list[-1])))
+                    agent.exceeded_node_capacity_list.append(np.sum(self.env.exceeded_node_capacity_list))
+                    agent.exceeded_link_bandwidth_list.append(np.sum(self.env.exceeded_link_bandwidth_list))
 
                 agent.avg_placement_reward_list.append(np.mean(agent.placement_reward_list))
                 agent.avg_power_consumption_list.append(np.mean(agent.power_consumption_list))
-                agent.avg_exceeded_penalty_list.append(np.mean(agent.exceeded_penalty_list))
                 agent.avg_acceptance_ratio_list.append(np.mean(agent.acceptance_ratio_list))
                 agent.avg_sfc_latency_list.append((np.mean(agent.sfc_latency_list)))
                 agent.avg_exceeded_node_capacity_list.append(np.mean(agent.exceeded_node_capacity_list))
@@ -222,7 +218,6 @@ class ExperimentRunner:
 
                 agent.placement_reward_list.clear()
                 agent.power_consumption_list.clear()
-                agent.exceeded_penalty_list.clear()
                 agent.acceptance_ratio_list.clear()
                 agent.sfc_latency_list.clear()
                 agent.exceeded_node_capacity_list.clear()
@@ -248,7 +243,6 @@ class ExperimentRunner:
 
             heuristic.placement_reward_list = []
             heuristic.power_consumption_list = []
-            heuristic.exceeded_penalty_list = []
             heuristic.acceptance_ratio_list = []
             heuristic.sfc_latency_list = []
             heuristic.exceeded_node_capacity_list = []
@@ -257,7 +251,6 @@ class ExperimentRunner:
 
             heuristic.avg_placement_reward_list = []
             heuristic.avg_power_consumption_list = []
-            heuristic.avg_exceeded_penalty_list = []
             heuristic.avg_acceptance_ratio_list = []
             heuristic.avg_sfc_latency_list = []
             heuristic.avg_exceeded_node_capacity_list = []
@@ -279,15 +272,13 @@ class ExperimentRunner:
                     heuristic.running_time_list.append(time.time() - heuristic_start_time)
                     heuristic.placement_reward_list.append(np.sum(self.env.placement_reward_list))
                     heuristic.power_consumption_list.append(np.sum(self.env.power_consumption_list))
-                    heuristic.exceeded_penalty_list.append(np.sum(self.env.exceeded_penalty_list))
                     heuristic.acceptance_ratio_list.append(self.env.sfc_placed_num / batch_size)
                     heuristic.sfc_latency_list.append(np.mean(self.env.sfc_latency_list))
-                    heuristic.exceeded_node_capacity_list.append(np.max((0, self.env.exceeded_node_capacity_list[-1])))
-                    heuristic.exceeded_link_bandwidth_list.append(np.max((0, self.env.exceeded_link_bandwidth_list[-1])))
+                    heuristic.exceeded_node_capacity_list.append(np.sum(self.env.exceeded_node_capacity_list))
+                    heuristic.exceeded_link_bandwidth_list.append(np.sum(self.env.exceeded_link_bandwidth_list))
 
                 heuristic.avg_placement_reward_list.append(np.mean(heuristic.placement_reward_list))
                 heuristic.avg_power_consumption_list.append(np.mean(heuristic.power_consumption_list))
-                heuristic.avg_exceeded_penalty_list.append(np.mean(heuristic.exceeded_penalty_list))
                 heuristic.avg_acceptance_ratio_list.append(np.mean(heuristic.acceptance_ratio_list))
                 heuristic.avg_sfc_latency_list.append((np.mean(heuristic.sfc_latency_list)))
                 heuristic.avg_exceeded_node_capacity_list.append(np.mean(heuristic.exceeded_node_capacity_list))
@@ -296,7 +287,6 @@ class ExperimentRunner:
 
                 heuristic.placement_reward_list.clear()
                 heuristic.power_consumption_list.clear()
-                heuristic.exceeded_penalty_list.clear()
                 heuristic.acceptance_ratio_list.clear()
                 heuristic.sfc_latency_list.clear()
                 heuristic.exceeded_node_capacity_list.clear()
@@ -345,7 +335,6 @@ class ExperimentRunner:
             'Number of SFC': self.batch_size_list,
             'Average Placement Reward': agent.avg_placement_reward_list,
             'Average Power Consumption': agent.avg_power_consumption_list,
-            'Average Exceeded Penalty': agent.avg_exceeded_penalty_list,
             'Average Acceptance Ratio': agent.avg_acceptance_ratio_list,
             'Average SFC End-to-End Latency': agent.avg_sfc_latency_list,
             'Average Exceeded Node Resource Usage': agent.avg_exceeded_node_capacity_list,

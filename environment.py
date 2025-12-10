@@ -73,7 +73,6 @@ class Environment:
 
         self.placement_reward = 0
         self.power_consumption = 0
-        self.exceeded_penalty = 0
         self.reliability_difference = 0
         self.reward = 0
         self.sfc_placed_num = 0
@@ -95,7 +94,6 @@ class Environment:
         # record episode data
         self.placement_reward_list = []
         self.power_consumption_list = []
-        self.exceeded_penalty_list = []
         self.reward_list = []
         self.sfc_latency_list = []
         self.exceeded_node_capacity_list = []
@@ -213,6 +211,12 @@ class Environment:
             self.placement_reward = self.placement_reward * 2
             self.sfc_placed_num += 1
 
+        self.placement_reward_list.append(self.placement_reward)
+        self.power_consumption_list.append(self.power_consumption)
+        self.exceeded_node_capacity_list.append(self.exceeded_capacity)
+        self.exceeded_link_bandwidth_list.append(self.exceeded_bandwidth)
+        self.sfc_latency_list.append(self.sfc_latency)
+
         # normalize reward with a slide window
         self.placement_reward_window.append(self.placement_reward)
         self.power_consumption_window.append(self.power_consumption)
@@ -226,24 +230,22 @@ class Environment:
         max_exceeded_bandwidth = max(self.exceeded_bandwidth_window) if self.exceeded_bandwidth_window else 1.0
         max_exceeded_latency = max(self.exceeded_latency_window) if self.exceeded_latency_window else 1.0
 
-        self.placement_reward = self.lambda_placement * np.clip(self.placement_reward / (max_placement_reward + 1e-6), -1.0, 1.0)
-        self.power_consumption = self.lambda_power * np.clip(self.power_consumption / (max_power_consumption + 1e-6), -1.0, 1.0)
-        self.exceeded_capacity = self.lambda_capacity * np.clip(self.exceeded_capacity / (max_exceeded_capacity + 1e-6), -1.0, 1.0)
-        self.exceeded_bandwidth = self.lambda_bandwidth * np.clip(self.exceeded_bandwidth / (max_exceeded_bandwidth + 1e-6), -1.0, 1.0)
-        self.exceeded_latency = self.lambda_latency * np.clip(self.exceeded_latency / (max_exceeded_latency + 1e-6), -1.0, 1.0)
+        self.placement_reward =  np.clip(self.placement_reward / (max_placement_reward + 1e-6), -1.0, 1.0)
+        self.power_consumption =  np.clip(self.power_consumption / (max_power_consumption + 1e-6), -1.0, 1.0)
+        self.exceeded_capacity =  np.clip(self.exceeded_capacity / (max_exceeded_capacity + 1e-6), -1.0, 1.0)
+        self.exceeded_bandwidth = np.clip(self.exceeded_bandwidth / (max_exceeded_bandwidth + 1e-6), -1.0, 1.0)
+        self.exceeded_latency = np.clip(self.exceeded_latency / (max_exceeded_latency + 1e-6), -1.0, 1.0)
 
-        self.exceeded_penalty =  self.exceeded_capacity + self.exceeded_bandwidth + self.exceeded_latency
+        exceeded_penalty =  (self.lambda_capacity * self.exceeded_capacity
+                                  + self.lambda_bandwidth * self.exceeded_bandwidth
+                                  + self.lambda_latency * self.exceeded_latency)
+
         self.reliability_difference = self.lambda_reliability * (reliability_requirement - self.reliability)
 
-        self.reward = self.placement_reward - self.power_consumption - self.exceeded_penalty - self.reliability_difference
+        self.reward = self.lambda_placement * self.placement_reward - self.lambda_power * self.power_consumption - exceeded_penalty - self.reliability_difference
 
-        self.placement_reward_list.append(self.placement_reward)
-        self.power_consumption_list.append(self.power_consumption)
-        self.exceeded_penalty_list.append(self.exceeded_penalty)
         self.reward_list.append(self.reward)
-        self.sfc_latency_list.append(self.sfc_latency)
-        self.exceeded_node_capacity_list.append(self.exceeded_capacity)
-        self.exceeded_link_bandwidth_list.append(self.exceeded_bandwidth)
+
 
     @staticmethod
     def link_to_index(links):
@@ -340,7 +342,6 @@ class Environment:
 
         self.placement_reward = 0
         self.power_consumption = 0
-        self.exceeded_penalty = 0
         self.reliability_difference = 0
         self.reward = 0
 
@@ -364,7 +365,6 @@ class Environment:
 
         self.placement_reward = 0
         self.power_consumption = 0
-        self.exceeded_penalty = 0
         self.reliability_difference = 0
         self.reward = 0
         self.sfc_placed_num = 0
@@ -377,7 +377,6 @@ class Environment:
 
         self.placement_reward_list.clear()
         self.power_consumption_list.clear()
-        self.exceeded_penalty_list.clear()
         self.reward_list.clear()
         self.sfc_latency_list.clear()
         self.exceeded_node_capacity_list.clear()
