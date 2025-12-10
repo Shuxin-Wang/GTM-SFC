@@ -342,7 +342,7 @@ class EnhancedNCO(nn.Module):
             sfc = source_dest_node_pair.to(dtype=torch.int32).tolist() + sfc_list[i] + reliability_requirement.tolist()
             env.step(sfc, placement)
 
-class PPO(nn.Module):
+class GTMSFC(nn.Module):
     def __init__(self, cfg, env, sfc_generator, device='cpu'):
         super().__init__()
         self.node_state_dim, self.vnf_state_dim, _, _ = env.get_state_dim(sfc_generator)

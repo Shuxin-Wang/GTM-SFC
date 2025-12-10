@@ -130,13 +130,13 @@ def show_evaluate_result(graph, dir_path, agent_name_list):
 def show_results(runner):
     agent_list = [agent.__class__.__name__ for agent in (runner.agent_list or [])]
     heuristic_list = [heuristic.__class__.__name__ for heuristic in (runner.heuristic_list or [])]
-    result_list = agent_list + heuristic_list
+    results_list = agent_list + heuristic_list
 
-    if result_list:
+    if results_list:
         if runner.cfg.train:
-            show_train_result(runner.graph, runner.result_path + '/train', result_list)
+            show_train_result(runner.graph, runner.result_path + '/train', results_list)
         if runner.cfg.evaluate:
-            show_evaluate_result(runner.graph, runner.result_path + '/evaluate', result_list)
+            show_evaluate_result(runner.graph, runner.result_path + '/evaluate', results_list)
     else:
         print("Enable train or evaluate to show results.")
 
@@ -145,18 +145,18 @@ if __name__ == '__main__':
         # 'NCO',
         # 'EnhancedNCO',
         # 'DRLSFCP',
-        'PPO',
+        'GTMSFC',
         # 'ACED'
         ]
 
     heuristic_name_list = [
         # 'Greedy',
-        'FirstFit'
+        # 'FirstFit'
         ]
 
     result_list = agent_name_list + heuristic_name_list
 
     # show_train_result('Cogentco', 'save/result/Cogentco/train', agent_name_list)
-    show_evaluate_result('Cogentco', 'save/result/Cogentco/evaluate', result_list)
+    # show_evaluate_result('Cogentco', 'save/result/Cogentco/evaluate', result_list)
     # show_train_result('Chinanet', 'save/result/Chinanet/train', agent_name_list)
-    # show_evaluate_result('Chinanet', 'save/result/Chinanet/evaluate', result_list)
+    show_evaluate_result('Chinanet', 'save/result/Chinanet/evaluate', result_list)
