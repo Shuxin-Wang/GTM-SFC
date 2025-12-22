@@ -2,7 +2,7 @@ import numpy as np
 import random
 import torch
 import networkx as nx
-from environment import VNF_SIZE, VNF_LATENCY, VNF_BANDWIDTH, SFC_RELIABILITY, Environment
+from environment import VNF_SIZE, VNF_LATENCY, VNF_BANDWIDTH, SFC_RELIABILITY
 
 class SFCBatchGenerator:
     def __init__(self, cfg):
@@ -33,6 +33,7 @@ class SFCBatchGenerator:
     def _generate_vnf_types(self):
         for batch in range(self.batch_size):
             self.sfc_length[batch] = random.randint(self.min_sfc_length, self.max_sfc_length)
+            # self.sfc_length[batch] = 6  # set sfc with fixed length
             for i in range(self.sfc_length[batch]):
                 vnf_type = random.randint(1, self.num_vnf_types)    # vnf type = 0 means empty
                 self.sfc[batch][i] = vnf_type

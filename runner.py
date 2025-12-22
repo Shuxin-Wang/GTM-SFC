@@ -35,6 +35,7 @@ class ExperimentRunner:
 
         self.iteration = cfg.iteration
         self.episode = cfg.episode
+        self.round = cfg.round
 
         self.save_model = cfg.save_model
 
@@ -44,19 +45,7 @@ class ExperimentRunner:
         warnings.filterwarnings("ignore")
         
     def set_model(self):
-        if self.model == 'all':
-            self.agent_list = [
-                NCO(self.cfg, self.env, self.sfc_generator, self.device),
-                EnhancedNCO(self.cfg, self.env, self.sfc_generator, self.device),
-                DRLSFCP(self.cfg, self.env, self.sfc_generator, self.device),
-                GTMSFC(self.cfg, self.env, self.sfc_generator, self.device),
-                ACED(self.cfg, self.env, self.sfc_generator, self.device)
-            ]
-            self.heuristic_list = [
-                Greedy(self.cfg, self.env, self.sfc_generator),
-                FirstFit(self.cfg, self.env, self.sfc_generator)
-            ]
-        elif self.model == 'NCO':
+        if self.model == 'NCO':
             self.agent_list = [
                 NCO(self.cfg, self.env, self.sfc_generator, self.device)
             ]
@@ -75,12 +64,6 @@ class ExperimentRunner:
         elif self.model == 'ACED':
             self.agent_list = [
                 ACED(self.cfg, self.env, self.sfc_generator, self.device)
-            ]
-        elif self.model == 'Heuristic':
-            self.cfg.train = False
-            self.heuristic_list = [
-                Greedy(self.cfg, self.env, self.sfc_generator),
-                FirstFit(self.cfg, self.env, self.sfc_generator)
             ]
         elif self.model == 'Greedy':
             self.cfg.train = False
@@ -194,7 +177,7 @@ class ExperimentRunner:
 
             for batch_size in pbar:
                 self.sfc_generator.set_batch_size(batch_size)
-                for _ in range(self.episode):
+                for _ in range(self.round):
                     sfc_list = self.sfc_generator.get_sfc_batch()
                     sfc_state_list, source_dest_node_pairs, reliability_requirement_list = self.sfc_generator.get_sfc_states()
 

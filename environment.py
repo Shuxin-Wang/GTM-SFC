@@ -3,7 +3,6 @@ import numpy as np
 import networkx as nx
 import torch
 from torch_geometric.utils import to_undirected
-from collections import deque
 
 VNF_SIZE = [4, 3, 2, 2, 1, 1, 1, 1] # node resource of a VNF need
 VNF_LATENCY = [20, 20, 40, 40, 80, 80, 100, 100]    # VNF processing delay

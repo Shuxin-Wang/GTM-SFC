@@ -140,7 +140,6 @@ class NCO(nn.Module):
                 baseline = self.critic(states)
 
             advantage = rewards - baseline
-            # advantage = (advantage - advantage.mean()) / (advantage.std() + 1e-8)
 
             actor_loss = -(advantage * log_pi_action).mean()
 
@@ -193,7 +192,7 @@ class EnhancedNCO(nn.Module):
         self.actor = StateNetworkActor(self.node_state_dim, self.vnf_state_dim, self.num_nodes, self.max_sfc_length).to(device)
         self.critic = StateNetworkCritic(self.node_state_dim, self.vnf_state_dim, self.num_nodes, self.max_sfc_length, hidden_dim=64).to(device)
 
-        self.actor_optimizer = optim.Adam(self.actor.parameters(), lr=5e-5)
+        self.actor_optimizer = optim.Adam(self.actor.parameters(), lr=1e-5)
         self.critic_optimizer = optim.Adam(self.critic.parameters(), lr=1e-4)
 
         self.replay_buffer = ReplayBuffer(capacity=self.episode * self.batch_size)
@@ -403,7 +402,6 @@ class GTMSFC(nn.Module):
                 placement = action[0][:len(sfc_list[i])].squeeze(0).to(dtype=torch.int32).tolist() # masked placement
                 sfc = source_dest_node_pair.to(dtype=torch.int32).tolist() + sfc_list[i] + reliability_requirement.tolist()
                 next_node_states, reward = env.step(sfc, placement)
-                # print(env.reward, env.placement_reward, env.power_consumption, env.exceeded_capacity, env.exceeded_bandwidth, env.exceeded_latency, env.reliability_difference)
                 episode_reward += reward
 
                 if i + 1 >= sfc_generator.batch_size:
@@ -558,8 +556,8 @@ class DRLSFCP(nn.Module):
         self.actor = DecoderActor(self.node_state_dim, self.vnf_state_dim, self.num_nodes, self.max_sfc_length, embedding_dim=64).to(device)
         self.critic = DecoderCritic(self.node_state_dim, self.vnf_state_dim, self.num_nodes, self.max_sfc_length, embedding_dim=64).to(device)
 
-        self.actor_optimizer = optim.Adam(self.actor.parameters(), lr=5e-4)
-        self.critic_optimizer = optim.Adam(self.critic.parameters(), lr=5e-4)
+        self.actor_optimizer = optim.Adam(self.actor.parameters(), lr=1e-5)
+        self.critic_optimizer = optim.Adam(self.critic.parameters(), lr=1e-4)
 
         self.replay_buffer = ReplayBuffer(capacity=self.episode * self.batch_size)
 
